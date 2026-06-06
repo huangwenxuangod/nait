@@ -137,6 +137,7 @@ if ! [ -x "$(command -v supabase)" ]; then
   
   # 多代理备用下载机制（防超时、防断连，确保 100% 成功）
   PROXIES=(
+    "https://ghproxy.net/https://github.com"
     "https://ghproxy.cn/https://github.com"
     "https://github.moeyy.xyz/https://github.com"
     "https://mirror.ghproxy.com/https://github.com"
@@ -146,7 +147,8 @@ if ! [ -x "$(command -v supabase)" ]; then
   for proxy in "${PROXIES[@]}"; do
     echo -e "${YELLOW}尝试使用国内代理源下载: $proxy ...${NC}"
     if curl -k --connect-timeout 8 -L "$proxy/supabase/cli/releases/download/v${CLI_VERSION}/supabase_linux_amd64.tar.gz" -o supabase_cli.tar.gz; then
-      if [ -f "supabase_cli.tar.gz" ] && [ -s "supabase_cli.tar.gz" ]; then
+      # 严格校验：真正的二进制压缩包体积应大于 5MB，防止把 404 JSON 错当成成功下载
+      if [ -f "supabase_cli.tar.gz" ] && [ $(wc -c < "supabase_cli.tar.gz") -gt 5000000 ]; then
         echo -e "${GREEN}下载成功! 正在解压安装...${NC}"
         tar -zxf supabase_cli.tar.gz
         mv supabase /usr/local/bin/
@@ -155,7 +157,7 @@ if ! [ -x "$(command -v supabase)" ]; then
         break
       fi
     fi
-    echo -e "${RED}当前代理源响应超时，正在尝试下一个备用源...${NC}"
+    echo -e "${RED}当前代理源下载无效或超时，正在尝试下一个备用源...${NC}"
     rm -f supabase_cli.tar.gz
   done
   
