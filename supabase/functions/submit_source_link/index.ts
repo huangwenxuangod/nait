@@ -48,43 +48,72 @@ Deno.serve(async (req) => {
       throw error ?? new Error("Failed to submit source link");
     }
 
-    const mockParse = hasQwenConfig()
-      ? await createQwenJsonResponse<SourceParsePayload>({
-        system:
-          "你是一个美甲教程解析器。根据短视频链接或预设标识，推断可能的美甲风格、视觉元素、关键工艺、步骤、计时和材料。只返回严格 JSON，不要解释。",
-        user: `请解析这个来源并输出 JSON：${body.source_url}`,
-        requiredKeys: [
-          "style_name",
-          "style_tags",
-          "visual_elements",
-          "techniques",
-          "total_steps",
-          "materials_hint",
-          "steps",
-          "source_url",
-          "note",
-        ],
-      })
-      : {
-        style_name: "极光冰透猫眼",
-        style_tags: ["极光猫眼", "冰透水光", "暖调显白"],
-        visual_elements: ["粉透底色", "银色高光", "猫眼斜吸"],
-        techniques: ["底胶打底", "两层透色叠涂", "磁铁斜吸", "封层固化"],
-        total_steps: 4,
-        materials_hint: ["底胶", "透粉色胶", "猫眼胶", "磁铁", "封层"],
-        steps: [
-          { index: 1, title: "修甲并打底", instruction: "修整甲型后薄涂底胶。", timer_seconds: 30 },
-          { index: 2, title: "叠加底色", instruction: "薄涂两层透粉底色，每层均匀照灯。", timer_seconds: 60 },
-          { index: 3, title: "做猫眼光", instruction: "上猫眼胶后用磁铁斜吸 45 度。", timer_seconds: 60 },
-          { index: 4, title: "封层完成", instruction: "加亮面封层并完成最终固化。", timer_seconds: 90 },
-        ],
-        source_url: body.source_url,
-        note: "Fallback parse generated without OPENAI_API_KEY.",
-      };
+    let mockParse: SourceParsePayload;
+
+    if (body.source_url.startsWith("preset://")) {
+      const presetId = body.source_url.replace("preset://", "");
+      try {
+        const fileUrl = new URL(`./presets/${presetId}.json`, import.meta.url);
+        const presetText = await Deno.readTextFile(fileUrl);
+        mockParse = JSON.parse(presetText);
+      } catch (e) {
+        console.warn(`[submit_source_link] Preset ${presetId} not found, falling back to default:`, e);
+        mockParse = {
+          style_name: "极光冰透猫眼",
+          style_tags: ["极光猫眼", "冰透水光", "暖调显白"],
+          visual_elements: ["粉透底色", "银色高光", "猫眼斜吸"],
+          techniques: ["底胶打底", "两层透色叠涂", "磁铁斜吸", "封层固化"],
+          total_steps: 4,
+          materials_hint: ["底胶", "透粉色胶", "猫眼胶", "磁铁", "封层"],
+          steps: [
+            { index: 1, title: "修甲并打底", instruction: "修整甲型后薄涂底胶。", timer_seconds: 30 },
+            { index: 2, title: "叠加底色", instruction: "薄涂两层透粉底色，每层均匀照灯。", timer_seconds: 60 },
+            { index: 3, title: "做猫眼光", instruction: "上猫眼胶后用磁铁斜吸 45 度。", timer_seconds: 60 },
+            { index: 4, title: "封层完成", instruction: "加亮面封层并完成最终固化。", timer_seconds: 90 },
+          ],
+          source_url: body.source_url,
+          note: "Fallback parse generated due to missing preset file.",
+        };
+      }
+    } else {
+      mockParse = hasQwenConfig()
+        ? await createQwenJsonResponse<SourceParsePayload>({
+          system:
+            "你是一个美甲教程解析器。根据短视频链接或预设标识，推断可能的美甲风格、视觉元素、关键工艺、步骤、计时和材料。只返回严格 JSON，不要解释。",
+          user: `请解析这个来源并输出 JSON：${body.source_url}`,
+          requiredKeys: [
+            "style_name",
+            "style_tags",
+            "visual_elements",
+            "techniques",
+            "total_steps",
+            "materials_hint",
+            "steps",
+            "source_url",
+            "note",
+          ],
+        })
+        : {
+          style_name: "极光冰透猫眼",
+          style_tags: ["极光猫眼", "冰透水光", "暖调显白"],
+          visual_elements: ["粉透底色", "银色高光", "猫眼斜吸"],
+          techniques: ["底胶打底", "两层透色叠涂", "磁铁斜吸", "封层固化"],
+          total_steps: 4,
+          materials_hint: ["底胶", "透粉色胶", "猫眼胶", "磁铁", "封层"],
+          steps: [
+            { index: 1, title: "修甲并打底", instruction: "修整甲型后薄涂底胶。", timer_seconds: 30 },
+            { index: 2, title: "叠加底色", instruction: "薄涂两层透粉底色，每层均匀照灯。", timer_seconds: 60 },
+            { index: 3, title: "做猫眼光", instruction: "上猫眼胶后用磁铁斜吸 45 度。", timer_seconds: 60 },
+            { index: 4, title: "封层完成", instruction: "加亮面封层并完成最终固化。", timer_seconds: 90 },
+          ],
+          source_url: body.source_url,
+          note: "Fallback parse generated without OPENAI_API_KEY.",
+        };
+    }
 
     await supabase.from("source_parses").upsert({
       session_id: body.session_id,
-      model: hasQwenConfig() ? "qwen3.6-plus" : "fallback",
+      model: hasQwenConfig() ? "qwen2.5-vl-72b-instruct" : "fallback",
       version: "v1",
       parse_json: mockParse,
     });

@@ -50,6 +50,10 @@ captures/
 # Supabase local temp / link metadata
 supabase/.temp/
 
+# Local videos and parsed assets
+videos/
+parse_videos.py
+
 # Local deploy output / scratch
 tmp/
 temp/

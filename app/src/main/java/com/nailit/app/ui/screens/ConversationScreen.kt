@@ -183,6 +183,9 @@ fun ConversationScreen(
             .onSuccess { tokenPayload ->
                 realtimeManager.connect(tokenPayload)
             }
+            .onFailure {
+                permissionHint = it.message
+            }
     }
 
     LaunchedEffect(realtimeState.lastAudioDeltaBase64) {

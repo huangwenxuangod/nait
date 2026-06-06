@@ -94,6 +94,42 @@ fun HomeScreen(
 
     val templates = listOf(
         TemplateItem(
+            id = "polar-cat-matte",
+            title = "极光猫眼渐变磨砂",
+            subtitle = "磨砂质感 + 侧边聚光",
+            imageRes = R.drawable.nail_showcase_01,
+        ),
+        TemplateItem(
+            id = "french-polar-cat",
+            title = "法式极光猫眼渐变",
+            subtitle = "法式微光 + 极光双色猫眼",
+            imageRes = R.drawable.nail_showcase_02,
+        ),
+        TemplateItem(
+            id = "blush-firework-cat",
+            title = "腮红渐变烟花猫眼",
+            subtitle = "腮红打底 + 细闪烟花猫眼",
+            imageRes = R.drawable.nail_showcase_03,
+        ),
+        TemplateItem(
+            id = "polar-cat-french",
+            title = "极光猫眼渐变法式",
+            subtitle = "极光猫眼 + 经典法式边",
+            imageRes = R.drawable.nail_showcase_04,
+        ),
+        TemplateItem(
+            id = "french-gradient-struct",
+            title = "法式渐变建构",
+            subtitle = "微晶建构 + 粉白优雅法式",
+            imageRes = R.drawable.nail_showcase_01,
+        ),
+        TemplateItem(
+            id = "pure-yellow",
+            title = "单色纯欲黄",
+            subtitle = "冰透柠檬黄 + 显白单色",
+            imageRes = R.drawable.nail_showcase_02,
+        ),
+        TemplateItem(
             id = "milk-dot-french",
             title = "奶白波点法式",
             subtitle = "裸透底 + 奶白波点边",
@@ -120,6 +156,12 @@ fun HomeScreen(
     )
 
     fun matchUrlToTemplate(url: String): TemplateItem? {
+        if (url.contains("download-1") || url.contains("polar-cat-matte")) return templates.find { it.id == "polar-cat-matte" }
+        if (url.contains("download-2") || url.contains("french-polar-cat")) return templates.find { it.id == "french-polar-cat" }
+        if (url.contains("download-3") || url.contains("blush-firework-cat")) return templates.find { it.id == "blush-firework-cat" }
+        if (url.contains("download-4") || url.contains("polar-cat-french")) return templates.find { it.id == "polar-cat-french" }
+        if (url.contains("download-5") || url.contains("french-gradient-struct")) return templates.find { it.id == "french-gradient-struct" }
+        if (url.contains("download-0") || url.contains("pure-yellow") || url.contains("download.mp4")) return templates.find { it.id == "pure-yellow" }
         if (url.contains("milk-dot-french")) return templates.find { it.id == "milk-dot-french" }
         if (url.contains("mist-blue-cat-eye")) return templates.find { it.id == "mist-blue-cat-eye" }
         if (url.contains("star-dot-french")) return templates.find { it.id == "star-dot-french" }

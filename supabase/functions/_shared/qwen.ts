@@ -2,7 +2,7 @@ const QWEN_BASE_URL =
   Deno.env.get("QWEN_BASE_URL") ?? "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const QWEN_API_KEY =
   Deno.env.get("QWEN_API_KEY") ?? Deno.env.get("DASHSCOPE_API_KEY") ?? "";
-const QWEN_TEXT_MODEL = Deno.env.get("QWEN_TEXT_MODEL") ?? "qwen3.6-plus";
+const QWEN_TEXT_MODEL = Deno.env.get("QWEN_TEXT_MODEL") ?? "qwen2.5-vl-72b-instruct";
 
 export function hasQwenConfig() {
   return QWEN_API_KEY.trim().length > 0;
@@ -70,6 +70,41 @@ async function requestQwenJsonText(
   user: string,
   model: string,
 ): Promise<string> {
+  let userContent: any = user;
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const match = user.match(urlRegex);
+  
+  if (model.includes("vl") && match) {
+    const url = match[0];
+    const isVideo = url.endsWith(".mp4") || url.endsWith(".webm") || url.endsWith(".mov") || url.includes("video");
+    
+    if (isVideo) {
+      userContent = [
+        {
+          type: "video",
+          video: url
+        },
+        {
+          type: "text",
+          text: user.replace(url, "").trim()
+        }
+      ];
+    } else if (url.endsWith(".jpg") || url.endsWith(".jpeg") || url.endsWith(".png") || url.endsWith(".webp")) {
+      userContent = [
+        {
+          type: "image_url",
+          image_url: {
+            url: url
+          }
+        },
+        {
+          type: "text",
+          text: user.replace(url, "").trim()
+        }
+      ];
+    }
+  }
+
   const response = await fetch(`${QWEN_BASE_URL.replace(/\/+$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
@@ -80,7 +115,7 @@ async function requestQwenJsonText(
       model,
       messages: [
         { role: "system", content: system },
-        { role: "user", content: user },
+        { role: "user", content: userContent },
       ],
       response_format: {
         type: "json_object",
