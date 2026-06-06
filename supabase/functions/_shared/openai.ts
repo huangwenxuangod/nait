@@ -188,23 +188,23 @@ function createImageEditFormData({
   form.set("prompt", prompt);
   form.set("size", size);
 
-  const inputs = imageInputs?.takeIf { it.isNotEmpty() } ?: listOf(
+  const inputs = (imageInputs && imageInputs.length > 0) ? imageInputs : [
     {
       imageBase64: imageBase64,
       mimeType: mimeType,
       fileName: fileName,
     }
-  );
+  ];
 
-  inputs.forEachIndexed { index, image ->
+  inputs.forEach((image, index) => {
     form.append(
-      if (inputs.size > 1) "image[]" else "image",
-      new Blob([Uint8Array.from(atob(image.imageBase64), (char) => char.charCodeAt(0))], {
+      inputs.length > 1 ? "image[]" : "image",
+      new Blob([Uint8Array.from(atob(image.imageBase64), (c) => c.charCodeAt(0))], {
         type: image.mimeType ?? "image/jpeg",
       }),
-      image.fileName ?? "image-${index + 1}.jpg",
+      image.fileName ?? `image-${index + 1}.jpg`,
     );
-  }
+  });
   return form;
 }
 
