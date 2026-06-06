@@ -75,8 +75,21 @@ sed -i "s/^SERVICE_ROLE_KEY=.*/SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY/" .env
 echo -e "${GREEN}环境变量配置完成!${NC}"
 
 echo -e "${YELLOW}--- [步骤 3/6] 启动 Supabase 容器堆栈 ---${NC}"
-docker-compose down || true
-docker-compose up -d
+
+# 兼容性修复：删除老版本 docker-compose 不支持的 'name' 属性
+sed -i '/^name: supabase/d' docker-compose.yml || true
+
+# 动态检测并使用最新版的 'docker compose' 还是老版的 'docker-compose'
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD="docker compose"
+  echo -e "${GREEN}检测到现代版 Docker Compose V2 Plugin, 将使用 '$COMPOSE_CMD' 进行部署。${NC}"
+else
+  COMPOSE_CMD="docker-compose"
+  echo -e "${YELLOW}检测到传统版 docker-compose V1, 将使用 '$COMPOSE_CMD' 进行部署。${NC}"
+fi
+
+$COMPOSE_CMD down || true
+$COMPOSE_CMD up -d
 
 echo -e "${GREEN}Supabase 容器启动指令已发出，正在后台启动...${NC}"
 
