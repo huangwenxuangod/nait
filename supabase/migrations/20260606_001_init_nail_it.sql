@@ -87,6 +87,6 @@ alter publication supabase_realtime add table public.try_on_results;
 alter publication supabase_realtime add table public.bom_lists;
 alter publication supabase_realtime add table public.sop_guides;
 
-insert into storage.buckets (id, name, public)
-values ('nail-it-assets', 'nail-it-assets', false)
+insert into storage.buckets (id, name, "public")
+values ('nail-it-assets', 'nail-it-assets', true)
 on conflict (id) do nothing;

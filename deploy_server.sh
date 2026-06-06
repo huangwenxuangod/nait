@@ -133,8 +133,13 @@ fi
 echo -e "${YELLOW}--- [步骤 5/6] 安装并配置 Supabase CLI (用于云函数部署) ---${NC}"
 if ! [ -x "$(command -v supabase)" ]; then
   echo -e "${YELLOW}正在安装 Supabase CLI...${NC}"
-  # 使用官方一键脚本安装 CLI
-  curl -fsSL https://mirror.ghproxy.com/https://raw.githubusercontent.com/supabase/cli/main/install.sh | sh
+  # 下载预编译的 Linux x64 二进制包（使用 ghproxy 极速下载）
+  CLI_VERSION="1.191.3"
+  echo -e "${YELLOW}正在从极速代理下载 Supabase CLI v${CLI_VERSION} 二进制包...${NC}"
+  curl -L "https://mirror.ghproxy.com/https://github.com/supabase/cli/releases/download/v${CLI_VERSION}/supabase_${CLI_VERSION}_linux_amd64.tar.gz" -o supabase_cli.tar.gz
+  tar -zxf supabase_cli.tar.gz
+  mv supabase /usr/local/bin/
+  rm -f supabase_cli.tar.gz
   echo -e "${GREEN}Supabase CLI 安装成功!${NC}"
 fi
 
