@@ -239,8 +239,12 @@ Deno.serve(async (req) => {
       );
     }
 
+    const fingerDesignMap = Array.isArray(resultJson?.finger_design_map) ? resultJson.finger_design_map : [];
+    const nailLayoutSummary = resultJson?.nail_layout_summary ?? "";
+    const renderPromptText = resultJson?.render_prompt ?? renderPrompt;
+
     const imageBase64 = await createImageEdit({
-      prompt: `${resultJson.render_prompt}\n\n补充约束：${resultJson.nail_layout_summary}\n每根手指设计映射：${resultJson.finger_design_map.map((item) => `${item.finger}:${item.design}(${item.placement})`).join("；")}。\n用户甲面位置提示：${formatNailHints(body.nail_position_hints ?? [])}。请优先把设计落在这些甲面位置附近，只修改对应甲面区域。`,
+      prompt: `${renderPromptText}\n\n补充约束：${nailLayoutSummary}\n每根手指设计映射：${fingerDesignMap.map((item) => `${item?.finger ?? ""}:${item?.design ?? ""}(${item?.placement ?? ""})`).join("；")}。\n用户甲面位置提示：${formatNailHints(body.nail_position_hints ?? [])}。请优先把设计落在这些甲面位置附近，只修改对应甲面区域。`,
       imageBase64: handBase64,
       mimeType: handFile.type || "image/jpeg",
       fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",

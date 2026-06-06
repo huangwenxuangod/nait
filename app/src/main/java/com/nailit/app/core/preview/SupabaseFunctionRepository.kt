@@ -206,12 +206,28 @@ class SupabaseFunctionRepository {
             )
         }
 
-        return client.post("${BuildConfig.SUPABASE_URL.trimEnd('/')}/functions/v1/create_qwen_temp_token") {
+        val httpResponse = client.post("${BuildConfig.SUPABASE_URL.trimEnd('/')}/functions/v1/create_qwen_temp_token") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${BuildConfig.SUPABASE_ANON_KEY}")
             header("apikey", BuildConfig.SUPABASE_ANON_KEY)
             setBody(emptyMap<String, String>())
-        }.body()
+        }
+
+        val rawBody = httpResponse.body<String>()
+        if (httpResponse.status.value >= 400) {
+            val errorMessage = runCatching {
+                json.parseToJsonElement(rawBody).jsonObject["error"]?.jsonPrimitive?.contentOrNull
+            }.getOrNull() ?: rawBody.ifBlank { "HTTP error ${httpResponse.status.value}" }
+            throw Exception("REALTIME_TOKEN_FAILED: $errorMessage")
+        }
+
+        return runCatching {
+            json.decodeFromString(CreateRealtimeTokenResponse.serializer(), rawBody)
+        }.getOrElse { error ->
+            throw Exception(
+                "REALTIME_TOKEN_SCHEMA_INVALID: ${error.message ?: "unknown"} | body=$rawBody"
+            )
+        }
     }
 
     suspend fun fetchSourceParse(sessionId: String): JsonObject? {
