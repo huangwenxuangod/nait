@@ -79,6 +79,13 @@ echo -e "${YELLOW}--- [步骤 3/6] 启动 Supabase 容器堆栈 ---${NC}"
 # 兼容性修复：删除老版本 docker-compose 不支持的 'name' 属性
 sed -i '/^name: supabase/d' docker-compose.yml || true
 
+# 极速优化：使用 Python 脚本剔除 MVP 不需要的高负载服务（supavisor, imgproxy, auth, studio, meta）
+if [ -f "$SCRIPT_DIR/supabase/optimize_compose.py" ]; then
+  echo -e "${YELLOW}正在优化 docker-compose.yml，剔除 MVP 无用服务以节省服务器内存...${NC}"
+  python3 "$SCRIPT_DIR/supabase/optimize_compose.py" docker-compose.yml
+  echo -e "${GREEN}docker-compose.yml 优化完成!${NC}"
+fi
+
 # 动态检测并使用最新版的 'docker compose' 还是老版的 'docker-compose'
 if docker compose version >/dev/null 2>&1; then
   COMPOSE_CMD="docker compose"
