@@ -26,6 +26,9 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+# 获取当前脚本所在的项目根目录绝对路径
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # 2. 默认变量配置
 DB_PASSWORD="NailItSecureDB2026"
 PUBLISHABLE_KEY="sb_publishable_I5DTHgZlBPvw3-5mzsjquQ_BwIzZUox"
@@ -117,7 +120,6 @@ for i in {1..30}; do
 done
 
 # 获取迁移 SQL 路径
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 MIGRATION_SQL="$SCRIPT_DIR/supabase/migrations/20260606_001_init_nail_it.sql"
 
 if [ -f "$MIGRATION_SQL" ]; then
