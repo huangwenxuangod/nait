@@ -1,5 +1,4 @@
 import sys
-import re
 
 def optimize_compose(file_path):
     unwanted = {'auth', 'imgproxy', 'meta', 'studio', 'supavisor'}
@@ -7,11 +6,12 @@ def optimize_compose(file_path):
     with open(file_path, 'r') as f:
         content = f.read()
 
-    # Split into lines
     lines = content.splitlines()
     output = []
-    skip = False
+    skip_block = False
+    skip_indent = 0
     
+    # Pass 1: Remove unwanted services
     for line in lines:
         stripped = line.strip()
         if not stripped:
@@ -20,57 +20,52 @@ def optimize_compose(file_path):
             
         indent = len(line) - len(line.lstrip())
         
-        # If we are currently skipping an unwanted service block
-        if skip:
-            if indent > 2 or stripped.startswith('#'):
+        if skip_block:
+            if indent > skip_indent:
                 continue
             else:
-                skip = False
+                skip_block = False
                 
-        # Detect start of a service block (at exactly 2 spaces indentation)
+        # Detect start of an unwanted service block under "services:" (typically at 2 spaces)
         if indent == 2 and stripped.endswith(':'):
             service_name = stripped[:-1].strip()
             if service_name in unwanted:
-                skip = True
+                skip_block = True
+                skip_indent = indent
                 continue
-                
-        # Remove dependencies on unwanted services in "depends_on" blocks
-        # e.g., "      auth:" or "      - auth"
-        if stripped.startswith('- ') or stripped.endswith(':'):
-            dep_name = stripped.lstrip('- ').rstrip(':').strip()
-            if dep_name in unwanted:
-                # If it's a list item like "- auth", skip it
-                if stripped.startswith('- '):
-                    continue
-                # If it's a key like "auth:", we can't easily skip without context, but standard supabase compose uses list format:
-                # depends_on:
-                #   db:
-                #     condition: service_healthy
-                #   auth:
-                #     condition: service_started
-                # We can skip the block if it starts with the unwanted service name
                 
         output.append(line)
 
-    # Let's do a second pass to clean up any empty depends_on blocks or block-style depends_on
+    # Pass 2: Remove unwanted dependencies under "depends_on:"
     final_output = []
-    skip_dep_block = False
+    skip_dep = False
+    skip_dep_indent = 0
     
-    for i, line in enumerate(output):
+    for line in output:
         stripped = line.strip()
+        if not stripped:
+            final_output.append(line)
+            continue
+            
         indent = len(line) - len(line.lstrip())
         
-        if skip_dep_block:
-            if indent > 4:
+        if skip_dep:
+            if indent > skip_dep_indent:
                 continue
             else:
-                skip_dep_block = False
+                skip_dep = False
                 
-        # Check if this line is an unwanted dependency block (e.g. "auth:" under "depends_on:")
-        if indent == 4 and stripped.endswith(':'):
+        # Detect dependency item in "depends_on" (can be at 4, 6, or 8 spaces depending on formatting)
+        # e.g., "imgproxy:" or "- imgproxy"
+        if stripped.endswith(':'):
             dep_name = stripped[:-1].strip()
             if dep_name in unwanted:
-                skip_dep_block = True
+                skip_dep = True
+                skip_dep_indent = indent
+                continue
+        elif stripped.startswith('- '):
+            dep_name = stripped[2:].strip()
+            if dep_name in unwanted:
                 continue
                 
         final_output.append(line)
