@@ -3,8 +3,10 @@ import { useState } from "react";
 import { PhoneFrame } from "./PhoneFrame";
 import tryOnImg from "@/assets/nail-tryon.jpg";
 
-export function TryOnScreen({ onBack, onConfirm }: { onBack: () => void; onConfirm: () => void }) {
+export function TryOnScreen({ handImage, onBack, onConfirm }: { handImage?: string | null; onBack: () => void; onConfirm: () => void }) {
   const [comparing, setComparing] = useState(false);
+  void handImage;
+
 
   return (
     <PhoneFrame>
@@ -23,9 +25,13 @@ export function TryOnScreen({ onBack, onConfirm }: { onBack: () => void; onConfi
           <div className="relative w-full rounded-[2rem] overflow-hidden shadow-[0_20px_50px_-20px_rgba(0,0,0,0.25)]" style={{ height: "65vh", maxHeight: 560 }}>
             <img src={tryOnImg} alt="虚拟试戴效果" className="w-full h-full object-cover" />
             {comparing && (
-              <div className="absolute inset-0 bg-black/40 backdrop-grayscale flex items-center justify-center">
-                <span className="text-white text-xs tracking-[0.3em] uppercase">Original</span>
-              </div>
+              handImage ? (
+                <img src={handImage} alt="原手" className="absolute inset-0 w-full h-full object-cover" />
+              ) : (
+                <div className="absolute inset-0 bg-black/40 backdrop-grayscale flex items-center justify-center">
+                  <span className="text-white text-xs tracking-[0.3em] uppercase">Original</span>
+                </div>
+              )
             )}
             <div className="absolute top-3 left-3 bg-white/85 backdrop-blur px-2.5 py-1 rounded-full text-[10px] tracking-widest text-foreground/80">
               · AI MATCH 98%

@@ -8,12 +8,25 @@ type Screen = "home" | "tryon" | "prep" | "focus";
 
 export function NailItApp() {
   const [screen, setScreen] = useState<Screen>("home");
+  const [handImage, setHandImage] = useState<string | null>(null);
 
   switch (screen) {
     case "home":
-      return <HomeScreen onNext={() => setScreen("tryon")} />;
+      return (
+        <HomeScreen
+          handImage={handImage}
+          onHandChange={setHandImage}
+          onNext={() => setScreen("tryon")}
+        />
+      );
     case "tryon":
-      return <TryOnScreen onBack={() => setScreen("home")} onConfirm={() => setScreen("prep")} />;
+      return (
+        <TryOnScreen
+          handImage={handImage}
+          onBack={() => setScreen("home")}
+          onConfirm={() => setScreen("prep")}
+        />
+      );
     case "prep":
       return <PrepScreen onBack={() => setScreen("tryon")} onStart={() => setScreen("focus")} />;
     case "focus":
