@@ -36,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -88,6 +89,7 @@ fun AdaptationScreen(
     var handBitmap by remember { mutableStateOf(HandPhotoRuntime.currentBitmap) }
     var remoteTryOnBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isRendering by remember { mutableStateOf(false) }
+    var debugErrorText by remember { mutableStateOf<String?>(null) }
     var statusText by remember {
         mutableStateOf(
             if (handBitmap == null) "先拍一张手图，用来生成你的试戴图。" else "准备开始试戴。"
@@ -116,6 +118,7 @@ fun AdaptationScreen(
             handBitmap = bitmap
             HandPhotoRuntime.currentBitmap = bitmap
             remoteTryOnBitmap = null
+            debugErrorText = null
             statusText = "手图已就绪，可以开始试戴。"
         } else {
             statusText = "未拍到照片，请再试一次。"
@@ -161,6 +164,7 @@ fun AdaptationScreen(
         scope.launch {
             isRendering = true
             remoteTryOnBitmap = null
+            debugErrorText = null
             statusText = "正在生成试戴图。"
 
             runCatching {
@@ -208,14 +212,16 @@ fun AdaptationScreen(
                 statusText = if (tryOnBitmap != null) {
                     "这是你的 AI 试戴结果。"
                 } else {
-                    "试戴完成，正在加载图片。"
+                    "TRYON_RESULT_PATH_EMPTY: 已完成试戴调用，但没有取到结果图。"
                 }
             }.onFailure { error ->
+                val rawError = error.message ?: error::class.java.simpleName
                 NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
                     tryOnStatus = "failed",
-                    tryOnError = error.message,
+                    tryOnError = rawError,
                 )
-                statusText = "这次试戴没出图，再试一次就好。"
+                debugErrorText = rawError
+                statusText = rawError
             }
 
             isRendering = false
@@ -240,7 +246,9 @@ fun AdaptationScreen(
             }
             activeSession?.tryOnStatus == "failed" -> {
                 isRendering = false
-                statusText = "这次试戴没出图，再试一次就好。"
+                val runtimeError = activeSession?.tryOnError ?: "TRYON_FAILED: 未知错误"
+                debugErrorText = runtimeError
+                statusText = runtimeError
             }
             handBitmap != null -> {
                 statusText = "准备开始试戴。"
@@ -350,10 +358,23 @@ fun AdaptationScreen(
             Text(
                 text = statusText,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    color = TryOnMuted,
+                    color = if (debugErrorText != null) Color(0xFF9E2A2B) else TryOnMuted,
                     lineHeight = 20.sp,
                 )
             )
+
+            if (debugErrorText != null) {
+                TextButton(
+                    onClick = { debugErrorText = null },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text(
+                        text = "清除错误",
+                        color = TryOnAccent,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+            }
 
             if (handBitmap == null) {
                 Button(

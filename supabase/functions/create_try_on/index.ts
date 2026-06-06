@@ -19,6 +19,20 @@ interface TryOnPayload {
 
 const BUCKET = "nail-it-assets";
 
+function prefixedError(code: string, message: string, extra?: unknown) {
+  const suffix = extra == null ? "" : ` | ${stringifyError(extra)}`;
+  return new Error(`${code}: ${message}${suffix}`);
+}
+
+function stringifyError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return JSON.stringify(error);
+}
+
 Deno.serve(async (req) => {
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -36,21 +50,29 @@ Deno.serve(async (req) => {
       .update({ status: "try_on_pending" })
       .eq("id", body.session_id);
 
-    if (pendingError) throw pendingError;
+    if (pendingError) {
+      throw prefixedError("TRYON_SESSION_STATUS_UPDATE_FAILED", "更新会话状态失败", pendingError);
+    }
 
-    const { data: session } = await supabase
+    const { data: session, error: sessionError } = await supabase
       .from("sessions")
       .select("style_name, source_url")
       .eq("id", body.session_id)
       .single();
+    if (sessionError) {
+      throw prefixedError("TRYON_SESSION_READ_FAILED", "读取 session 失败", sessionError);
+    }
 
-    const { data: parseRecord } = await supabase
+    const { data: parseRecord, error: parseError } = await supabase
       .from("source_parses")
       .select("parse_json")
       .eq("session_id", body.session_id)
       .maybeSingle();
+    if (parseError) {
+      throw prefixedError("TRYON_PARSE_READ_FAILED", "读取款式解析结果失败", parseError);
+    }
 
-    const { data: handAsset } = await supabase
+    const { data: handAsset, error: handAssetError } = await supabase
       .from("session_assets")
       .select("storage_path")
       .eq("session_id", body.session_id)
@@ -58,9 +80,12 @@ Deno.serve(async (req) => {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (handAssetError) {
+      throw prefixedError("TRYON_HAND_ASSET_QUERY_FAILED", "查询手图资产失败", handAssetError);
+    }
 
     if (!handAsset?.storage_path) {
-      throw new Error("Missing hand photo asset");
+      throw prefixedError("TRYON_HAND_ASSET_MISSING", "缺少 hand_photo 资产");
     }
 
     const { data: handFile, error: handFileError } = await supabase.storage
@@ -68,7 +93,11 @@ Deno.serve(async (req) => {
       .download(handAsset.storage_path);
 
     if (handFileError || !handFile) {
-      throw handFileError ?? new Error("Failed to download hand photo");
+      throw prefixedError(
+        "TRYON_HAND_ASSET_DOWNLOAD_FAILED",
+        `下载手图失败，path=${handAsset.storage_path}`,
+        handFileError ?? "empty file"
+      );
     }
 
     const handBytes = new Uint8Array(await handFile.arrayBuffer());
@@ -109,6 +138,8 @@ Deno.serve(async (req) => {
             "note",
           ],
         },
+      }).catch((error) => {
+        throw prefixedError("TRYON_PROMPT_PLAN_FAILED", "生成试戴 prompt 失败", error);
       })
       : {
         fit_summary: "这款偏暖调，适合大多数黄皮，整体会更显干净。",
@@ -126,6 +157,8 @@ Deno.serve(async (req) => {
         imageBase64: handBase64,
         mimeType: handFile.type || "image/jpeg",
         fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
+      }).catch((error) => {
+        throw prefixedError("TRYON_IMAGE_GENERATION_FAILED", "生成试戴图片失败", error);
       })
       : handBase64;
 
@@ -137,7 +170,13 @@ Deno.serve(async (req) => {
         upsert: true,
       });
 
-    if (uploadError) throw uploadError;
+    if (uploadError) {
+      throw prefixedError(
+        "TRYON_RESULT_UPLOAD_FAILED",
+        `上传试戴结果失败，path=${tryOnStoragePath}`,
+        uploadError
+      );
+    }
 
     const { error: upsertError } = await supabase.from("try_on_results").upsert({
       session_id: body.session_id,
@@ -150,12 +189,17 @@ Deno.serve(async (req) => {
       },
     });
 
-    if (upsertError) throw upsertError;
+    if (upsertError) {
+      throw prefixedError("TRYON_RESULT_UPSERT_FAILED", "写入 try_on_results 失败", upsertError);
+    }
 
-    await supabase
+    const { error: readyError } = await supabase
       .from("sessions")
       .update({ status: "try_on_ready" })
       .eq("id", body.session_id);
+    if (readyError) {
+      throw prefixedError("TRYON_SESSION_READY_UPDATE_FAILED", "回写试戴完成状态失败", readyError);
+    }
 
     const response: CreateTryOnResponse = {
       session_id: body.session_id,
@@ -165,11 +209,7 @@ Deno.serve(async (req) => {
     return jsonResponse(response);
   } catch (error) {
     console.error("Function error:", error);
-    const message = error instanceof Error
-      ? error.message
-      : typeof error === "object" && error !== null && "message" in error
-        ? (error as any).message
-        : JSON.stringify(error);
+    const message = stringifyError(error);
     return jsonResponse(
       { error: message },
       { status: 500 },
