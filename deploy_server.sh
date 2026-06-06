@@ -145,7 +145,7 @@ if ! [ -x "$(command -v supabase)" ]; then
   DOWNLOAD_SUCCESS=false
   for proxy in "${PROXIES[@]}"; do
     echo -e "${YELLOW}尝试使用国内代理源下载: $proxy ...${NC}"
-    if curl -k --connect-timeout 8 -L "$proxy/supabase/cli/releases/download/v${CLI_VERSION}/supabase_${CLI_VERSION}_linux_amd64.tar.gz" -o supabase_cli.tar.gz; then
+    if curl -k --connect-timeout 8 -L "$proxy/supabase/cli/releases/download/v${CLI_VERSION}/supabase_linux_amd64.tar.gz" -o supabase_cli.tar.gz; then
       if [ -f "supabase_cli.tar.gz" ] && [ -s "supabase_cli.tar.gz" ]; then
         echo -e "${GREEN}下载成功! 正在解压安装...${NC}"
         tar -zxf supabase_cli.tar.gz
