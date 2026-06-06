@@ -100,3 +100,43 @@
 @utility animate-bob {
   animation: float-bob 2.4s ease-in-out infinite;
 }
+
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-120%) skewX(-12deg); }
+  100% { transform: translateX(220%) skewX(-12deg); }
+}
+@utility animate-shimmer {
+  animation: shimmer-sweep 2.8s ease-in-out infinite;
+}
+
+@keyframes sparkle-pop {
+  0%, 100% { opacity: 0.3; transform: scale(0.85) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1.15) rotate(20deg); }
+}
+@utility animate-sparkle {
+  animation: sparkle-pop 2.2s ease-in-out infinite;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@utility animate-pulse-ring {
+  animation: pulse-ring 2s ease-out infinite;
+}
+
+@keyframes dash-spin {
+  to { stroke-dashoffset: -40; }
+}
+@utility animate-dash {
+  animation: dash-spin 6s linear infinite;
+}
+
+@keyframes drift-up {
+  0% { transform: translateY(10px); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translateY(-40px); opacity: 0; }
+}
+@utility animate-drift {
+  animation: drift-up 3s ease-in-out infinite;
+}
