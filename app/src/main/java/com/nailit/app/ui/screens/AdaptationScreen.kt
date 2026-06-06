@@ -1,6 +1,7 @@
 package com.nailit.app.ui.screens
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -8,7 +9,6 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,18 +18,15 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,8 +62,8 @@ import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.core.preview.NailSessionSnapshot
 import com.nailit.app.core.preview.SupabaseFunctionRepository
 import io.github.jan.supabase.storage.storage
-import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.launch
 
 private val TryOnBg = Color(0xFFF7F2ED)
 private val TryOnCard = Color(0xFFFFFEFC)
@@ -90,34 +88,24 @@ fun AdaptationScreen(
     var handBitmap by remember { mutableStateOf(HandPhotoRuntime.currentBitmap) }
     var remoteTryOnBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isRendering by remember { mutableStateOf(false) }
-    var isPreparingGuide by remember { mutableStateOf(false) }
     var statusText by remember {
         mutableStateOf(
-            if (handBitmap == null) "先拍一张手图。" else "开始生成试戴结果。"
+            if (handBitmap == null) "先拍一张手图，用来生成你的试戴图。" else "准备开始试戴。"
         )
-    }
-
-    androidx.compose.runtime.LaunchedEffect(activeSession?.status) {
-        when (activeSession?.status) {
-            "booting" -> statusText = "正在后台同步这次试戴。"
-            "source_parsing" -> statusText = "正在后台解析当前款式。"
-            "bootstrap_failed" -> statusText = "初始化失败，但你仍然可以先拍手图。"
-        }
     }
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        if (uri != null) {
-            val bitmap = loadBitmapFromUri(context, uri)
-            if (bitmap != null) {
-                handBitmap = bitmap
-                HandPhotoRuntime.currentBitmap = bitmap
-                remoteTryOnBitmap = null
-                statusText = "手图已更新。"
-            } else {
-                statusText = "图片读取失败，请重新选择。"
-            }
+        if (uri == null) return@rememberLauncherForActivityResult
+        val bitmap = loadBitmapFromUri(context, uri)
+        if (bitmap != null) {
+            handBitmap = bitmap
+            HandPhotoRuntime.currentBitmap = bitmap
+            remoteTryOnBitmap = null
+            statusText = "手图已就绪，可以开始试戴。"
+        } else {
+            statusText = "图片读取失败，请重新选择。"
         }
     }
 
@@ -128,7 +116,7 @@ fun AdaptationScreen(
             handBitmap = bitmap
             HandPhotoRuntime.currentBitmap = bitmap
             remoteTryOnBitmap = null
-            statusText = "手图已更新。"
+            statusText = "手图已就绪，可以开始试戴。"
         } else {
             statusText = "未拍到照片，请再试一次。"
         }
@@ -140,11 +128,13 @@ fun AdaptationScreen(
         if (granted) {
             takePicturePreviewLauncher.launch(null)
         } else {
-            pickMediaLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            pickMediaLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            )
         }
     }
 
-    fun retryCapture() {
+    fun openCapture() {
         val hasCameraPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.CAMERA
@@ -156,72 +146,29 @@ fun AdaptationScreen(
         }
     }
 
-    fun prepareGuide() {
+    fun startTryOn() {
         val session = NailSessionRuntime.current ?: activeSession
-        if (session == null) {
-            statusText = "没有活跃会话，请返回首页重新开始。"
-            Log.e("AdaptationScreen", "[prepareGuide] session is null!")
-            return
-        }
-
-        scope.launch {
-            isPreparingGuide = true
-            statusText = "正在进入视频带做..."
-            Log.d("AdaptationScreen", "[prepareGuide] Starting guide preparation for sessionId: ${session.sessionId}")
-            runCatching {
-                Log.d("AdaptationScreen", "[prepareGuide] Step 1: calling generateExecutionPackage")
-                repository.generateExecutionPackage(session.sessionId)
-                Log.d("AdaptationScreen", "[prepareGuide] Step 2: calling fetchExecutionPackage")
-                repository.fetchExecutionPackage(session.sessionId)
-            }.onSuccess { executionPackage ->
-                Log.d("AdaptationScreen", "[prepareGuide] Success. Steps count: ${executionPackage?.steps?.size ?: 0}")
-                NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
-                    executionStatus = "guide_ready",
-                    estimatedTotalMinutes = executionPackage?.estimated_total_minutes ?: session.estimatedTotalMinutes,
-                    currentStepIndex = 0,
-                    currentStepTitle = executionPackage?.steps?.firstOrNull()?.title,
-                    executionSteps = executionPackage?.steps ?: session.executionSteps,
-                    executionError = null
-                )
-                statusText = "流程已就绪。"
-                onContinue()
-            }.onFailure { error ->
-                val detailedError = "SOP生成阶段出错: [${error::class.simpleName}] ${error.message}\n原因: ${error.cause?.message ?: "无"}\n堆栈: ${error.stackTrace.take(3).joinToString("\n")}"
-                Log.e("AdaptationScreen", "[prepareGuide] Failure: $detailedError", error)
-                NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
-                    executionStatus = "failed",
-                    executionError = detailedError
-                )
-                statusText = "流程生成失败，请重试。\n详细错误: ${error.message ?: "未知错误"}"
-            }
-            isPreparingGuide = false
-        }
-    }
-
-    fun startAsyncTryOnAndProceed() {
-        val session = activeSession
         val bitmap = handBitmap
         if (session == null) {
             statusText = "没有活跃会话，请返回首页重新开始。"
-            Log.e("AdaptationScreen", "[startAsyncTryOnAndProceed] session is null!")
             return
         }
         if (bitmap == null) {
             statusText = "请先拍摄或上传手图。"
-            Log.e("AdaptationScreen", "[startAsyncTryOnAndProceed] handBitmap is null!")
             return
         }
 
-        // 1. Launch Try-On in the background (survives navigation)
-        Log.d("AdaptationScreen", "[startAsyncTryOnAndProceed] Launching background Try-On task for sessionId: ${session.sessionId}")
-        NailSessionRuntime.backgroundScope.launch {
+        scope.launch {
+            isRendering = true
+            remoteTryOnBitmap = null
+            statusText = "正在生成试戴图。"
+
             runCatching {
-                NailSessionRuntime.current = NailSessionRuntime.current?.copy(
+                NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
                     tryOnStatus = "try_on_pending",
                     tryOnError = null
-                ) ?: session.copy(tryOnStatus = "try_on_pending", tryOnError = null)
+                )
 
-                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 1: calling prepareAssetUpload")
                 val upload = repository.prepareAssetUpload(
                     sessionId = session.sessionId,
                     assetType = "hand_photo",
@@ -229,65 +176,79 @@ fun AdaptationScreen(
                 )
                 val uploadPath = upload.storage_path ?: error("prepareAssetUpload returned empty storage_path")
                 val uploadAssetId = upload.asset_id ?: error("prepareAssetUpload returned empty asset_id")
-                
-                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 2: uploading hand photo to storage path: $uploadPath")
+
                 val publicUrl = SupabaseManager.uploadHandPhotoToPath(
                     photoBytes = bitmapToJpegBytes(bitmap),
                     storagePath = uploadPath,
                 )
-                
-                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 3: calling confirmAssetUpload for assetId: $uploadAssetId")
+
                 repository.confirmAssetUpload(
                     sessionId = session.sessionId,
                     assetId = uploadAssetId,
                     assetType = "hand_photo",
                     storagePath = uploadPath,
                 )
-                
-                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 4: calling createTryOn")
+
                 val tryOn = repository.createTryOn(session.sessionId)
-                
-                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 5: calling fetchTryOnResult")
                 repository.fetchTryOnResult(session.sessionId)
-                
-                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 6: calling fetchTryOnImagePath")
                 val tryOnPath = repository.fetchTryOnImagePath(session.sessionId)
-                Log.d("AdaptationScreen", "[BackgroundTryOn] Try-On path fetched: $tryOnPath")
+                val tryOnBitmap = tryOnPath?.let { loadRemoteBitmap(it) }
 
-                NailSessionRuntime.current = NailSessionRuntime.current?.copy(
+                NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
                     status = tryOn.status ?: "try_on_ready",
                     handAssetId = uploadAssetId,
                     handStoragePath = uploadPath,
                     handPhotoUrl = publicUrl,
                     tryOnStatus = tryOn.status ?: "try_on_ready",
                     targetImagePath = tryOnPath,
-                    tryOnError = null
-                ) ?: session.copy(
-                    status = tryOn.status ?: "try_on_ready",
-                    handAssetId = uploadAssetId,
-                    handStoragePath = uploadPath,
-                    handPhotoUrl = publicUrl,
-                    tryOnStatus = tryOn.status ?: "try_on_ready",
-                    targetImagePath = tryOnPath,
-                    tryOnError = null
+                    tryOnError = null,
                 )
-                Log.d("AdaptationScreen", "[BackgroundTryOn] Background Try-On completed successfully!")
+
+                remoteTryOnBitmap = tryOnBitmap
+                statusText = if (tryOnBitmap != null) {
+                    "这是你的 AI 试戴结果。"
+                } else {
+                    "试戴完成，正在加载图片。"
+                }
             }.onFailure { error ->
-                val detailedError = "后台试戴生成出错: [${error::class.simpleName}] ${error.message}\n原因: ${error.cause?.message ?: "无"}\n堆栈: ${error.stackTrace.take(3).joinToString("\n")}"
-                Log.e("AdaptationScreen", "[BackgroundTryOn] Failure: $detailedError", error)
-                NailSessionRuntime.current = NailSessionRuntime.current?.copy(
+                NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
                     tryOnStatus = "failed",
-                    tryOnError = detailedError
+                    tryOnError = error.message,
                 )
+                statusText = "这次试戴没出图，再试一次就好。"
             }
-        }
 
-        // 2. Simultaneously start preparing the guide in the screen scope
-        prepareGuide()
+            isRendering = false
+        }
     }
 
-    fun startDirectSop() {
-        prepareGuide()
+    LaunchedEffect(activeSession?.targetImagePath, activeSession?.tryOnStatus) {
+        when {
+            activeSession?.targetImagePath != null -> {
+                isRendering = true
+                remoteTryOnBitmap = loadRemoteBitmap(activeSession.targetImagePath)
+                isRendering = false
+                statusText = if (remoteTryOnBitmap != null) {
+                    "这是你的 AI 试戴结果。"
+                } else {
+                    "试戴图已经生成，正在加载。"
+                }
+            }
+            activeSession?.tryOnStatus == "try_on_pending" -> {
+                isRendering = true
+                statusText = "正在生成试戴图。"
+            }
+            activeSession?.tryOnStatus == "failed" -> {
+                isRendering = false
+                statusText = "这次试戴没出图，再试一次就好。"
+            }
+            handBitmap != null -> {
+                statusText = "准备开始试戴。"
+            }
+            else -> {
+                statusText = "先拍一张手图，用来生成你的试戴图。"
+            }
+        }
     }
 
     Scaffold(
@@ -320,39 +281,83 @@ fun AdaptationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 20.dp, vertical = 16.dp)
-                .verticalScroll(rememberScrollState()),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            Text(
+                text = "试戴结果",
+                style = MaterialTheme.typography.titleLarge.copy(
+                    color = TryOnText,
+                    fontWeight = FontWeight.Bold,
+                )
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(TryOnCard)
+                    .border(1.dp, TryOnBorder, RoundedCornerShape(30.dp)),
+                contentAlignment = Alignment.Center,
             ) {
-                MinimalImagePanel(
-                    title = "原图",
-                    bitmap = handBitmap,
-                    emptyText = "还没有手图",
-                    modifier = Modifier.weight(1f),
-                )
-                MinimalImagePanel(
-                    title = "试戴结果",
-                    bitmap = remoteTryOnBitmap,
-                    emptyText = if (isRendering) "正在生成..." else "点下方开始试戴",
-                    modifier = Modifier.weight(1f),
-                )
+                when {
+                    remoteTryOnBitmap != null -> {
+                        Image(
+                            bitmap = remoteTryOnBitmap!!.asImageBitmap(),
+                            contentDescription = "AI try-on result",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    }
+                    isRendering -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                color = TryOnAccent,
+                                strokeWidth = 2.5.dp,
+                            )
+                            Text(
+                                text = "AI 正在为你试戴",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = TryOnText,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            )
+                        }
+                    }
+                    handBitmap == null -> {
+                        Text(
+                            text = "先拍一张手图，再开始试戴",
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                color = TryOnMuted,
+                            )
+                        )
+                    }
+                    else -> {
+                        Text(
+                            text = "点击下方开始试戴",
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                color = TryOnMuted,
+                            )
+                        )
+                    }
+                }
             }
 
             Text(
                 text = statusText,
-                style = MaterialTheme.typography.bodySmall.copy(
+                style = MaterialTheme.typography.bodyMedium.copy(
                     color = TryOnMuted,
-                    lineHeight = 18.sp,
+                    lineHeight = 20.sp,
                 )
             )
 
             if (handBitmap == null) {
                 Button(
-                    onClick = { retryCapture() },
+                    onClick = { openCapture() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
@@ -369,128 +374,75 @@ fun AdaptationScreen(
                         )
                     )
                 }
-            } else {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+            } else if (remoteTryOnBitmap != null) {
+                Button(
+                    onClick = onContinue,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TryOnAccent,
+                        contentColor = Color.White,
+                    )
                 ) {
-                    Button(
-                        onClick = { startAsyncTryOnAndProceed() },
-                        enabled = !isPreparingGuide,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(22.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = TryOnAccent,
-                            contentColor = Color.White,
+                    Text(
+                        text = "语音继续",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
                         )
-                    ) {
-                        if (isPreparingGuide) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = Color.White,
-                            )
-                        } else {
-                            Text(
-                                text = "AI 试戴并进入 (推荐)",
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            )
-                        }
-                    }
+                    )
+                }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Button(
-                            onClick = { startDirectSop() },
-                            enabled = !isPreparingGuide,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(54.dp)
-                                .border(1.dp, TryOnBorder, RoundedCornerShape(20.dp)),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = TryOnAccent,
-                            )
-                        ) {
-                            Text(
-                                text = "直达实操 (跳过试戴)",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                Spacer(modifier = Modifier.size(0.dp))
 
-                        Button(
-                            onClick = { retryCapture() },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(54.dp),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFEFE6DF),
-                                contentColor = TryOnAccent,
+                Button(
+                    onClick = { startTryOn() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .border(1.dp, TryOnBorder, RoundedCornerShape(20.dp)),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = TryOnAccent,
+                    )
+                ) {
+                    Text(
+                        text = "重新试戴",
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    )
+                }
+            } else {
+                Button(
+                    onClick = { startTryOn() },
+                    enabled = !isRendering,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TryOnAccent,
+                        contentColor = Color.White,
+                    )
+                ) {
+                    if (isRendering) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White,
+                        )
+                    } else {
+                        Text(
+                            text = "开始试戴",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
                             )
-                        ) {
-                            Text(
-                                text = "重拍手图",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                        )
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MinimalImagePanel(
-    title: String,
-    bitmap: Bitmap?,
-    emptyText: String,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelLarge.copy(
-                color = TryOnMuted,
-                fontWeight = FontWeight.SemiBold,
-            )
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(260.dp)
-                .clip(RoundedCornerShape(26.dp))
-                .background(TryOnCard)
-                .border(1.dp, TryOnBorder, RoundedCornerShape(26.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (bitmap != null) {
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                Text(
-                    text = emptyText,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = TryOnMuted,
-                    )
-                )
             }
         }
     }
@@ -511,7 +463,7 @@ private fun bitmapToJpegBytes(bitmap: Bitmap): ByteArray {
     return output.toByteArray()
 }
 
-private fun loadBitmapFromUri(context: android.content.Context, uri: Uri): Bitmap? {
+private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
     return runCatching {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val source = ImageDecoder.createSource(context.contentResolver, uri)

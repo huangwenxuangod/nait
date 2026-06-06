@@ -132,7 +132,6 @@ fun ConversationScreen(
     }
     val realtimeState by realtimeManager.state.collectAsState()
     var liveFrameBitmap by remember { mutableStateOf<Bitmap?>(HandPhotoRuntime.currentBitmap) }
-    var showTryOnErrorDialog by remember { mutableStateOf(false) }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -148,6 +147,35 @@ fun ConversationScreen(
     LaunchedEffect(activeSession?.targetImagePath) {
         if (activeSession?.targetImagePath != null) {
             targetBitmap = loadTargetBitmap(activeSession.targetImagePath)
+        }
+    }
+
+    LaunchedEffect(activeSession?.sessionId) {
+        val session = NailSessionRuntime.current ?: sessionSnapshot ?: return@LaunchedEffect
+        if (session.executionSteps.isNotEmpty() || session.executionStatus == "guide_pending") return@LaunchedEffect
+
+        NailSessionRuntime.current = session.copy(
+            executionStatus = "guide_pending",
+            executionError = null,
+        )
+
+        runCatching {
+            repository.generateExecutionPackage(session.sessionId)
+            repository.fetchExecutionPackage(session.sessionId)
+        }.onSuccess { executionPackage ->
+            NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
+                executionStatus = "guide_ready",
+                estimatedTotalMinutes = executionPackage?.estimated_total_minutes ?: session.estimatedTotalMinutes,
+                currentStepIndex = 0,
+                currentStepTitle = executionPackage?.steps?.firstOrNull()?.title,
+                executionSteps = executionPackage?.steps ?: session.executionSteps,
+                executionError = null,
+            )
+        }.onFailure { error ->
+            NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
+                executionStatus = "guide_failed",
+                executionError = error.message,
+            )
         }
     }
 
@@ -314,9 +342,8 @@ fun ConversationScreen(
                         .padding(16.dp)
                         .size(width = 92.dp, height = 124.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF8B0000).copy(alpha = 0.8f))
-                        .border(1.dp, Color.Red.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                        .clickable { showTryOnErrorDialog = true },
+                        .background(Color.Black.copy(alpha = 0.52f))
+                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(20.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(
@@ -330,7 +357,7 @@ fun ConversationScreen(
                             modifier = Modifier.size(24.dp)
                         )
                         Text(
-                            text = "试戴失败\n点此查看",
+                            text = "试戴未出图",
                             color = Color.White,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
@@ -364,6 +391,15 @@ fun ConversationScreen(
                         lineHeight = 24.sp,
                     )
                 )
+
+                if (activeSession?.executionStatus == "guide_pending") {
+                    Text(
+                        text = "流程正在后台整理，你可以先跟着做。",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = Color.White.copy(alpha = 0.72f),
+                        )
+                    )
+                }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
@@ -444,30 +480,6 @@ fun ConversationScreen(
                 }
             }
         }
-    }
-
-    if (showTryOnErrorDialog) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showTryOnErrorDialog = false },
-            title = { Text("试戴生成失败诊断日志") },
-            text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.verticalScroll(rememberScrollState())
-                ) {
-                    Text(
-                        text = activeSession?.tryOnError ?: "未获取到具体错误日志信息。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            },
-            confirmButton = {
-                Button(onClick = { showTryOnErrorDialog = false }) {
-                    Text("确认")
-                }
-            }
-        )
     }
 }
 
