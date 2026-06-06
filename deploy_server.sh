@@ -55,10 +55,8 @@ fi
 
 echo -e "${YELLOW}--- [步骤 2/6] 拉取并配置自建 Supabase 官方容器堆栈 ---${NC}"
 if [ ! -d "$DOCKER_DIR" ]; then
-  echo -e "${YELLOW}使用 Git Sparse Checkout 极速克隆 Supabase Docker 部署包...${NC}"
-  git clone --depth=1 --filter=blob:none --sparse https://gitclone.com/github.com/supabase/supabase.git "$DOCKER_DIR"
-  cd "$DOCKER_DIR"
-  git sparse-checkout set docker
+  echo -e "${YELLOW}使用 Gitee 官方镜像源极速克隆 Supabase 部署包...${NC}"
+  git clone --depth 1 https://gitee.com/mirrors/supabase.git "$DOCKER_DIR"
 else
   echo -e "${GREEN}Supabase Docker 目录已存在，正在拉取最新版本...${NC}"
   cd "$DOCKER_DIR"
