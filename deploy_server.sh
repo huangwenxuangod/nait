@@ -133,13 +133,36 @@ fi
 echo -e "${YELLOW}--- [步骤 5/6] 安装并配置 Supabase CLI (用于云函数部署) ---${NC}"
 if ! [ -x "$(command -v supabase)" ]; then
   echo -e "${YELLOW}正在安装 Supabase CLI...${NC}"
-  # 下载预编译的 Linux x64 二进制包（使用 ghproxy 极速下载）
   CLI_VERSION="1.191.3"
-  echo -e "${YELLOW}正在从极速代理下载 Supabase CLI v${CLI_VERSION} 二进制包...${NC}"
-  curl -L "https://mirror.ghproxy.com/https://github.com/supabase/cli/releases/download/v${CLI_VERSION}/supabase_${CLI_VERSION}_linux_amd64.tar.gz" -o supabase_cli.tar.gz
-  tar -zxf supabase_cli.tar.gz
-  mv supabase /usr/local/bin/
-  rm -f supabase_cli.tar.gz
+  
+  # 多代理备用下载机制（防超时、防断连，确保 100% 成功）
+  PROXIES=(
+    "https://ghproxy.cn/https://github.com"
+    "https://github.moeyy.xyz/https://github.com"
+    "https://mirror.ghproxy.com/https://github.com"
+  )
+  
+  DOWNLOAD_SUCCESS=false
+  for proxy in "${PROXIES[@]}"; do
+    echo -e "${YELLOW}尝试使用国内代理源下载: $proxy ...${NC}"
+    if curl --connect-timeout 8 -L "$proxy/supabase/cli/releases/download/v${CLI_VERSION}/supabase_${CLI_VERSION}_linux_amd64.tar.gz" -o supabase_cli.tar.gz; then
+      if [ -f "supabase_cli.tar.gz" ] && [ -s "supabase_cli.tar.gz" ]; then
+        echo -e "${GREEN}下载成功! 正在解压安装...${NC}"
+        tar -zxf supabase_cli.tar.gz
+        mv supabase /usr/local/bin/
+        rm -f supabase_cli.tar.gz
+        DOWNLOAD_SUCCESS=true
+        break
+      fi
+    fi
+    echo -e "${RED}当前代理源响应超时，正在尝试下一个备用源...${NC}"
+    rm -f supabase_cli.tar.gz
+  done
+  
+  if [ "$DOWNLOAD_SUCCESS" = false ]; then
+    echo -e "${RED}错误: 所有国内代理源均下载失败，请尝试重新运行脚本或检查服务器网络。${NC}"
+    exit 1
+  fi
   echo -e "${GREEN}Supabase CLI 安装成功!${NC}"
 fi
 
