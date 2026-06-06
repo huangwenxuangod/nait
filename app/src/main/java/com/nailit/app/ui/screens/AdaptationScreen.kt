@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.nailit.app.core.network.SupabaseManager
+import com.nailit.app.core.preview.HandLandmarkEstimator
 import com.nailit.app.core.preview.HandPhotoRuntime
 import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.core.preview.NailSessionSnapshot
@@ -165,9 +166,12 @@ fun AdaptationScreen(
                     storagePath = uploadPath,
                 )
 
+                val nailHints = HandLandmarkEstimator.estimate(context, bitmap)
+                    .ifEmpty { estimateFallbackNailPositionHints() }
+
                 val tryOn = repository.createTryOn(
                     sessionId = session.sessionId,
-                    nailPositionHints = estimateNailPositionHints(bitmap),
+                    nailPositionHints = nailHints,
                 )
                 repository.fetchTryOnResult(session.sessionId)
                 val tryOnPath = repository.fetchTryOnImagePath(session.sessionId)
@@ -551,25 +555,14 @@ private fun bitmapToJpegBytes(bitmap: Bitmap): ByteArray {
     return output.toByteArray()
 }
 
-private fun estimateNailPositionHints(bitmap: Bitmap): List<NailPositionHint> {
-    val width = bitmap.width.toFloat().coerceAtLeast(1f)
-    val height = bitmap.height.toFloat().coerceAtLeast(1f)
-
+private fun estimateFallbackNailPositionHints(): List<NailPositionHint> {
     return listOf(
         NailPositionHint("index", 0.22f, 0.34f, 0.08f, 0.13f, -32f),
         NailPositionHint("middle", 0.43f, 0.29f, 0.085f, 0.14f, -14f),
         NailPositionHint("ring", 0.63f, 0.34f, 0.08f, 0.13f, 6f),
         NailPositionHint("pinky", 0.82f, 0.49f, 0.065f, 0.11f, 18f),
         NailPositionHint("thumb", 0.12f, 0.56f, 0.10f, 0.15f, -48f),
-    ).map {
-        it.copy(
-            center_x = (it.center_x * width) / width,
-            center_y = (it.center_y * height) / height,
-            width_ratio = it.width_ratio,
-            height_ratio = it.height_ratio,
-            angle_deg = it.angle_deg,
-        )
-    }
+    )
 }
 
 private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {

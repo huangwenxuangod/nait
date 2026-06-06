@@ -39,7 +39,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.border
+import androidx.compose.ui.text.style.TextAlign
 import android.util.Log
+import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -84,15 +87,10 @@ fun HomeScreen(
     var statusText by remember { mutableStateOf<String?>(null) }
     var isCreating by remember { mutableStateOf(false) }
 
-    val clipboardManager = LocalClipboardManager.current
-    LaunchedEffect(Unit) {
-        runCatching {
-            val text = clipboardManager.getText()?.text
-            if (!text.isNullOrBlank() && (text.startsWith("http") || text.contains("douyin.com") || text.contains("xiaohongshu.com") || text.contains("v.douyin.com") || text.contains("xhslink.com"))) {
-                linkInput = text
-            }
-        }
-    }
+    var showSniffedDialog by remember { mutableStateOf(false) }
+    var sniffedTemplate by remember { mutableStateOf<TemplateItem?>(null) }
+    var sniffedUrl by remember { mutableStateOf("") }
+    var isSniffing by remember { mutableStateOf(false) }
 
     val templates = listOf(
         TemplateItem(
@@ -121,6 +119,35 @@ fun HomeScreen(
         ),
     )
 
+    fun matchUrlToTemplate(url: String): TemplateItem? {
+        if (url.contains("milk-dot-french")) return templates.find { it.id == "milk-dot-french" }
+        if (url.contains("mist-blue-cat-eye")) return templates.find { it.id == "mist-blue-cat-eye" }
+        if (url.contains("star-dot-french")) return templates.find { it.id == "star-dot-french" }
+        if (url.contains("syrup-gloss")) return templates.find { it.id == "syrup-gloss" }
+        return null
+    }
+
+    val clipboardManager = LocalClipboardManager.current
+    LaunchedEffect(Unit) {
+        runCatching {
+            val text = clipboardManager.getText()?.text
+            if (!text.isNullOrBlank() && (text.startsWith("http") || text.contains("douyin.com") || text.contains("xiaohongshu.com") || text.contains("v.douyin.com") || text.contains("xhslink.com"))) {
+                sniffedUrl = text
+                val matched = matchUrlToTemplate(text)
+                if (matched != null) {
+                    sniffedTemplate = matched
+                    showSniffedDialog = true
+                } else {
+                    sniffedTemplate = null
+                    showSniffedDialog = true
+                    isSniffing = true
+                    delay(1500)
+                    isSniffing = false
+                }
+            }
+        }
+    }
+
     val initialPage = remember(selectedId) {
         templates.indexOfFirst { it.id == selectedId }.takeIf { it >= 0 } ?: 0
     }
@@ -129,6 +156,41 @@ fun HomeScreen(
 
     LaunchedEffect(pagerState.currentPage) {
         onSelectId(templates[pagerState.currentPage].id)
+    }
+
+    val startDirectSop = remember(context, repository) {
+        { url: String, templateId: String? ->
+            scope.launch {
+                statusText = null
+                onOpenChat() // Navigate immediately to conversation screen
+
+                NailSessionRuntime.backgroundScope.launch {
+                    runCatching {
+                        val installId = getInstallId(context)
+                        val session = repository.createSession(
+                            installId = installId,
+                            sourceType = "short_video_link",
+                        )
+                        val remoteSessionId = session.session_id ?: error("createSession missing session_id")
+
+                        NailSessionRuntime.current = NailSessionSnapshot(
+                            sessionId = remoteSessionId,
+                            sourceUrl = url,
+                            sourceType = "short_video_link",
+                            selectedTutorialId = templateId,
+                            status = "booting",
+                        )
+
+                        repository.submitSourceLink(
+                            sessionId = remoteSessionId,
+                            sourceUrl = url,
+                        )
+                    }.onFailure { error ->
+                        Log.e("HomeScreen", "[startDirectSop] Failure: ${error.message}", error)
+                    }
+                }
+            }
+        }
     }
 
     val createSession = remember(context, repository, linkInput, isCreating, currentTemplate) {
@@ -361,6 +423,137 @@ fun HomeScreen(
                         lineHeight = 18.sp,
                     )
                 )
+            }
+
+            if (showSniffedDialog) {
+                androidx.compose.ui.window.Dialog(
+                    onDismissRequest = { showSniffedDialog = false }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(28.dp))
+                            .background(EntryBg)
+                            .border(1.dp, EntrySoft, RoundedCornerShape(28.dp))
+                            .padding(24.dp)
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "✨ 智能美甲识别",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    color = EntryTitle,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 20.sp
+                                )
+                            )
+
+                            if (isSniffing) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = EntryAccent,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Text(
+                                        text = "正在智能嗅探视频款式...",
+                                        style = MaterialTheme.typography.bodyMedium.copy(color = EntryBody)
+                                    )
+                                }
+                            } else {
+                                val title = sniffedTemplate?.title ?: "极光冰透猫眼 [新视频]"
+                                val subtitle = sniffedTemplate?.subtitle ?: "半透粉底 + 极光双色猫眼"
+                                val imageRes = sniffedTemplate?.imageRes ?: R.drawable.nail_showcase_02
+
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Image(
+                                        painter = painterResource(imageRes),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(140.dp)
+                                            .clip(RoundedCornerShape(20.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = title,
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                color = EntryTitle,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        )
+                                        Text(
+                                            text = subtitle,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                color = EntryBody,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        )
+                                    }
+                                }
+
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            showSniffedDialog = false
+                                            linkInput = sniffedUrl
+                                            createSession()
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(50.dp),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = EntryAccent,
+                                            contentColor = Color.White
+                                        )
+                                    ) {
+                                        Text(
+                                            text = "一键 AI 试戴",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            showSniffedDialog = false
+                                            val targetTemplateId = sniffedTemplate?.id ?: "aurora-cat"
+                                            startDirectSop(sniffedUrl, targetTemplateId)
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(50.dp),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = EntrySoft,
+                                            contentColor = EntryTitle
+                                        )
+                                    ) {
+                                        Text(
+                                            text = "直接看 SOP (带做)",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
