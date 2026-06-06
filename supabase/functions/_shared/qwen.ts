@@ -14,12 +14,17 @@ export async function createQwenJsonResponse<T>({
   model = QWEN_TEXT_MODEL,
   requiredKeys = [],
   validate,
+  imageInputs = [],
 }: {
   system: string;
   user: string;
   model?: string;
   requiredKeys?: string[];
   validate?: (payload: unknown) => string | null;
+  imageInputs?: Array<{
+    imageBase64: string;
+    mimeType?: string;
+  }>;
 }): Promise<T> {
   if (!hasQwenConfig()) {
     throw new Error("Missing QWEN_API_KEY/DASHSCOPE_API_KEY");
@@ -45,7 +50,7 @@ export async function createQwenJsonResponse<T>({
     return parsed as T;
   };
 
-  const firstRaw = await requestQwenJsonText(system, user, model);
+  const firstRaw = await requestQwenJsonText(system, user, model, imageInputs);
   try {
     return parseAndValidate(firstRaw);
   } catch (firstError) {
@@ -53,6 +58,7 @@ export async function createQwenJsonResponse<T>({
       `${system}\n你上一次输出没有通过程序校验。这一次只能输出严格 JSON 对象，禁止附带任何解释、markdown、代码块或额外文本。`,
       `${user}\n请重新输出完整 JSON，确保字段齐全、类型正确。`,
       model,
+      imageInputs,
     );
 
     try {
@@ -69,39 +75,53 @@ async function requestQwenJsonText(
   system: string,
   user: string,
   model: string,
+  imageInputs?: Array<{ imageBase64: string; mimeType?: string }>,
 ): Promise<string> {
   let userContent: any = user;
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const match = user.match(urlRegex);
   
-  if (model.includes("vl") && match) {
-    const url = match[0];
-    const isVideo = url.endsWith(".mp4") || url.endsWith(".webm") || url.endsWith(".mov") || url.includes("video");
+  if (imageInputs && imageInputs.length > 0) {
+    userContent = [
+      { type: "text", text: user },
+      ...imageInputs.map((img) => ({
+        type: "image_url",
+        image_url: {
+          url: `data:${img.mimeType ?? "image/jpeg"};base64,${img.imageBase64}`,
+        },
+      })),
+    ];
+  } else {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const match = user.match(urlRegex);
     
-    if (isVideo) {
-      userContent = [
-        {
-          type: "video",
-          video: url
-        },
-        {
-          type: "text",
-          text: user.replace(url, "").trim()
-        }
-      ];
-    } else if (url.endsWith(".jpg") || url.endsWith(".jpeg") || url.endsWith(".png") || url.endsWith(".webp")) {
-      userContent = [
-        {
-          type: "image_url",
-          image_url: {
-            url: url
+    if (model.includes("vl") && match) {
+      const url = match[0];
+      const isVideo = url.endsWith(".mp4") || url.endsWith(".webm") || url.endsWith(".mov") || url.includes("video");
+      
+      if (isVideo) {
+        userContent = [
+          {
+            type: "video",
+            video: url
+          },
+          {
+            type: "text",
+            text: user.replace(url, "").trim()
           }
-        },
-        {
-          type: "text",
-          text: user.replace(url, "").trim()
-        }
-      ];
+        ];
+      } else if (url.endsWith(".jpg") || url.endsWith(".jpeg") || url.endsWith(".png") || url.endsWith(".webp")) {
+        userContent = [
+          {
+            type: "image_url",
+            image_url: {
+              url: url
+            }
+          },
+          {
+            type: "text",
+            text: user.replace(url, "").trim()
+          }
+        ];
+      }
     }
   }
 

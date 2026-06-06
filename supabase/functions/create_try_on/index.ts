@@ -2,6 +2,7 @@ import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { getAdminClient } from "../_shared/client.ts";
 import { createImageEdit, createJsonResponse, hasOpenAiConfig } from "../_shared/openai.ts";
+import { createQwenJsonResponse, hasQwenConfig } from "../_shared/qwen.ts";
 import type {
   CreateTryOnRequest,
   CreateTryOnResponse,
@@ -132,8 +133,35 @@ Deno.serve(async (req) => {
     const styleName = session?.style_name ?? "未命名款式";
     const renderPrompt = buildRenderPrompt(styleName, parseJson);
 
-    const resultJson = hasOpenAiConfig()
-      ? await createJsonResponse<TryOnPayload>({
+    let resultJson: TryOnPayload;
+
+    if (hasQwenConfig()) {
+      resultJson = await createQwenJsonResponse<TryOnPayload>({
+        system:
+          "你是一个电商级美甲试戴规划器。你会同时看到模板图和用户手图。你的任务是先分析模板款式在每根手指上的设计分布，再结合用户手图的手指方向与甲面位置，输出可直接给图像编辑模型使用的高精度中文 JSON。必须强调：只修改甲面，不修改肤色、手势、背景和光线。",
+        user: JSON.stringify({
+          style_name: styleName,
+          source_url: session?.source_url ?? "",
+          parse_json: parseJson,
+          nail_position_hints: body.nail_position_hints ?? [],
+        }),
+        requiredKeys: [
+          "fit_summary",
+          "tone_observation",
+          "highlight_points",
+          "risk_points",
+          "render_variants",
+          "nail_layout_summary",
+          "finger_design_map",
+          "render_prompt",
+          "note",
+        ],
+        imageInputs: listImageInputs(tutorialBase64, handBase64),
+      }).catch((error) => {
+        throw prefixedError("TRYON_PROMPT_PLAN_FAILED", "Qwen 生成试戴 prompt 失败", error);
+      });
+    } else if (hasOpenAiConfig()) {
+      resultJson = await createJsonResponse<TryOnPayload>({
         system:
           "你是一个电商级美甲试戴规划器。你会同时看到模板图和用户手图。你的任务是先分析模板款式在每根手指上的设计分布，再结合用户手图的手指方向与甲面位置，输出可直接给图像编辑模型使用的高精度中文 JSON。必须强调：只修改甲面，不修改肤色、手势、背景和光线。",
         user: JSON.stringify({
@@ -182,11 +210,12 @@ Deno.serve(async (req) => {
         },
         imageInputs: listImageInputs(tutorialBase64, handBase64),
       }).catch((error) => {
-        throw prefixedError("TRYON_PROMPT_PLAN_FAILED", "生成试戴 prompt 失败", error);
-      })
-      : {
+        throw prefixedError("TRYON_PROMPT_PLAN_FAILED", "OpenAI 生成试戴 prompt 失败", error);
+      });
+    } else {
+      resultJson = {
         fit_summary: "这款偏暖调，适合大多数黄皮，整体会更显干净。",
-        tone_observation: "建议保留透粉底色和柔和高光，不要把底色做得太冷。",
+        tone_observation: "建议保留透粉底色 and 柔和高光，不要把底色做得太冷。",
         highlight_points: ["通勤友好", "手部会显得更细长", "整体气质偏温柔"],
         risk_points: ["高闪过多会显得廉价", "法式边过宽会显手短"],
         render_variants: ["更暖一点", "更自然一点", "更透亮一点"],
@@ -199,35 +228,41 @@ Deno.serve(async (req) => {
           { finger: "pinky", design: "弱化装饰", placement: "甲尖" },
         ],
         render_prompt: renderPrompt,
-        note: "Fallback try-on rendered without OPENAI_API_KEY.",
+        note: "Fallback try-on rendered without API Keys.",
       };
+    }
 
-    const imageBase64 = hasOpenAiConfig()
-      ? await createImageEdit({
-        prompt: `${resultJson.render_prompt}\n\n补充约束：${resultJson.nail_layout_summary}\n每根手指设计映射：${resultJson.finger_design_map.map((item) => `${item.finger}:${item.design}(${item.placement})`).join("；")}。\n用户甲面位置提示：${formatNailHints(body.nail_position_hints ?? [])}。请优先把设计落在这些甲面位置附近，只修改对应甲面区域。`,
-        imageBase64: handBase64,
-        mimeType: handFile.type || "image/jpeg",
-        fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
-        imageInputs: [
-          {
-            imageBase64: handBase64,
-            mimeType: handFile.type || "image/jpeg",
-            fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
-          },
-          ...(
-            tutorialBase64
-              ? [{
-                  imageBase64: tutorialBase64,
-                  mimeType: "image/jpeg",
-                  fileName: "tutorial-reference.jpg",
-                }]
-              : []
-          ),
-        ],
-      }).catch((error) => {
-        throw prefixedError("TRYON_IMAGE_GENERATION_FAILED", "生成试戴图片失败", error);
-      })
-      : handBase64;
+    if (!hasOpenAiConfig()) {
+      throw prefixedError(
+        "TRYON_IMAGE_GENERATION_FAILED",
+        "云端未配置 OPENAI_API_KEY / 代理 Key，请在腾讯云服务器的 /root/supabase-docker/docker/.env 中配置并重启 supabase-edge-functions 容器！"
+      );
+    }
+
+    const imageBase64 = await createImageEdit({
+      prompt: `${resultJson.render_prompt}\n\n补充约束：${resultJson.nail_layout_summary}\n每根手指设计映射：${resultJson.finger_design_map.map((item) => `${item.finger}:${item.design}(${item.placement})`).join("；")}。\n用户甲面位置提示：${formatNailHints(body.nail_position_hints ?? [])}。请优先把设计落在这些甲面位置附近，只修改对应甲面区域。`,
+      imageBase64: handBase64,
+      mimeType: handFile.type || "image/jpeg",
+      fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
+      imageInputs: [
+        {
+          imageBase64: handBase64,
+          mimeType: handFile.type || "image/jpeg",
+          fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
+        },
+        ...(
+          tutorialBase64
+            ? [{
+                imageBase64: tutorialBase64,
+                mimeType: "image/jpeg",
+                fileName: "tutorial-reference.jpg",
+              }]
+            : []
+        ),
+      ],
+    }).catch((error) => {
+      throw prefixedError("TRYON_IMAGE_GENERATION_FAILED", "生成试戴图片失败", error);
+    });
 
     const tryOnStoragePath = `${body.session_id}/try_on_result/${crypto.randomUUID()}.png`;
     const { error: uploadError } = await supabase.storage
