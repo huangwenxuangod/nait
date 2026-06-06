@@ -18,6 +18,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -95,66 +96,13 @@ fun AdaptationScreen(
     var debugErrorText by remember { mutableStateOf<String?>(null) }
     var statusText by remember {
         mutableStateOf(
-            if (handBitmap == null) "先拍一张手图，用来生成你的试戴图。" else "准备开始试戴。"
+            if (handBitmap == null) "拍一张手图后会直接开始试戴。" else "正在准备试戴结果。"
         )
     }
 
-    val pickMediaLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val bitmap = loadBitmapFromUri(context, uri)
-        if (bitmap != null) {
-            handBitmap = bitmap
-            HandPhotoRuntime.currentBitmap = bitmap
-            remoteTryOnBitmap = null
-            statusText = "手图已就绪，可以开始试戴。"
-        } else {
-            statusText = "图片读取失败，请重新选择。"
-        }
-    }
-
-    val takePicturePreviewLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap ->
-        if (bitmap != null) {
-            handBitmap = bitmap
-            HandPhotoRuntime.currentBitmap = bitmap
-            remoteTryOnBitmap = null
-            debugErrorText = null
-            statusText = "手图已就绪，可以开始试戴。"
-        } else {
-            statusText = "未拍到照片，请再试一次。"
-        }
-    }
-
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            takePicturePreviewLauncher.launch(null)
-        } else {
-            pickMediaLauncher.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
-        }
-    }
-
-    fun openCapture() {
-        val hasCameraPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
-        if (hasCameraPermission) {
-            takePicturePreviewLauncher.launch(null)
-        } else {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
-
-    fun startTryOn() {
+    fun startTryOn(bitmapOverride: Bitmap? = handBitmap) {
         val session = NailSessionRuntime.current ?: activeSession
-        val bitmap = handBitmap
+        val bitmap = bitmapOverride
         if (session == null) {
             statusText = "没有活跃会话，请返回首页重新开始。"
             return
@@ -173,7 +121,7 @@ fun AdaptationScreen(
             runCatching {
                 NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
                     tryOnStatus = "try_on_pending",
-                    tryOnError = null
+                    tryOnError = null,
                 )
 
                 val upload = repository.prepareAssetUpload(
@@ -181,8 +129,8 @@ fun AdaptationScreen(
                     assetType = "hand_photo",
                     mimeType = "image/jpeg",
                 )
-                val uploadPath = upload.storage_path ?: error("prepareAssetUpload returned empty storage_path")
-                val uploadAssetId = upload.asset_id ?: error("prepareAssetUpload returned empty asset_id")
+                val uploadPath = upload.storage_path ?: error("TRYON_PREPARE_UPLOAD_PATH_EMPTY")
+                val uploadAssetId = upload.asset_id ?: error("TRYON_PREPARE_UPLOAD_ASSET_ID_EMPTY")
 
                 val publicUrl = SupabaseManager.uploadHandPhotoToPath(
                     photoBytes = bitmapToJpegBytes(bitmap),
@@ -231,6 +179,60 @@ fun AdaptationScreen(
         }
     }
 
+    val pickMediaLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val bitmap = loadBitmapFromUri(context, uri)
+        if (bitmap != null) {
+            handBitmap = bitmap
+            HandPhotoRuntime.currentBitmap = bitmap
+            remoteTryOnBitmap = null
+            debugErrorText = null
+            startTryOn(bitmap)
+        } else {
+            statusText = "图片读取失败，请重新选择。"
+        }
+    }
+
+    val takePicturePreviewLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            handBitmap = bitmap
+            HandPhotoRuntime.currentBitmap = bitmap
+            remoteTryOnBitmap = null
+            debugErrorText = null
+            startTryOn(bitmap)
+        } else {
+            statusText = "未拍到照片，请再试一次。"
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            takePicturePreviewLauncher.launch(null)
+        } else {
+            pickMediaLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            )
+        }
+    }
+
+    fun openCapture() {
+        val hasCameraPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasCameraPermission) {
+            takePicturePreviewLauncher.launch(null)
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
     LaunchedEffect(activeSession?.targetImagePath, activeSession?.tryOnStatus) {
         when {
             activeSession?.targetImagePath != null -> {
@@ -240,7 +242,7 @@ fun AdaptationScreen(
                 statusText = if (remoteTryOnBitmap != null) {
                     "这是你的 AI 试戴结果。"
                 } else {
-                    "试戴图已经生成，正在加载。"
+                    "TRYON_RESULT_LOAD_FAILED: 结果图路径存在，但图片加载失败。"
                 }
             }
             activeSession?.tryOnStatus == "try_on_pending" -> {
@@ -253,11 +255,8 @@ fun AdaptationScreen(
                 debugErrorText = runtimeError
                 statusText = runtimeError
             }
-            handBitmap != null -> {
-                statusText = "准备开始试戴。"
-            }
-            else -> {
-                statusText = "先拍一张手图，用来生成你的试戴图。"
+            handBitmap == null -> {
+                statusText = "拍一张手图后会直接开始试戴。"
             }
         }
     }
@@ -350,7 +349,7 @@ fun AdaptationScreen(
                     }
                     handBitmap == null -> {
                         Text(
-                            text = "先拍一张手图，再开始试戴",
+                            text = "拍张手图，直接开始试戴",
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 color = TryOnMuted,
                             )
@@ -358,7 +357,7 @@ fun AdaptationScreen(
                     }
                     else -> {
                         Text(
-                            text = "点击下方开始试戴",
+                            text = "手图已上传，正在准备试戴结果",
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 color = TryOnMuted,
                             )
@@ -401,7 +400,7 @@ fun AdaptationScreen(
                     )
                 ) {
                     Text(
-                        text = "拍张手图开始",
+                        text = "拍张手图直接试戴",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -430,7 +429,7 @@ fun AdaptationScreen(
                 Spacer(modifier = Modifier.size(0.dp))
 
                 Button(
-                    onClick = { startTryOn() },
+                    onClick = { openCapture() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
@@ -442,7 +441,7 @@ fun AdaptationScreen(
                     )
                 ) {
                     Text(
-                        text = "重新试戴",
+                        text = "换张手图重试",
                         style = MaterialTheme.typography.titleSmall.copy(
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -450,31 +449,23 @@ fun AdaptationScreen(
                 }
             } else {
                 Button(
-                    onClick = { startTryOn() },
+                    onClick = { openCapture() },
                     enabled = !isRendering,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(22.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = TryOnAccent,
-                        contentColor = Color.White,
+                        containerColor = Color.White,
+                        contentColor = TryOnAccent,
                     )
                 ) {
-                    if (isRendering) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = Color.White,
+                    Text(
+                        text = "重新拍图",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
                         )
-                    } else {
-                        Text(
-                            text = "开始试戴",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        )
-                    }
+                    )
                 }
             }
         }
@@ -503,10 +494,7 @@ private fun SourceReadyPill(
             containerColor = Color.White.copy(alpha = 0.92f),
             contentColor = TryOnAccent,
         ),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = 12.dp,
-            vertical = 0.dp,
-        )
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
