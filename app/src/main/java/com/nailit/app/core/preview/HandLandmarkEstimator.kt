@@ -14,8 +14,14 @@ object HandLandmarkEstimator {
 
     fun estimate(context: Context, bitmap: Bitmap): List<NailPositionHint> {
         return runCatching {
+            val softwareBitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && 
+                bitmap.config == Bitmap.Config.HARDWARE) {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            } else {
+                bitmap
+            }
             val handLandmarker = buildLandmarker(context)
-            val mpImage = BitmapImageBuilder(bitmap).build()
+            val mpImage = BitmapImageBuilder(softwareBitmap).build()
             val result = handLandmarker.detect(mpImage)
             handLandmarker.close()
             result.toNailHints()
