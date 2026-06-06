@@ -18,6 +18,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +28,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -309,6 +312,15 @@ fun AdaptationScreen(
                     .border(1.dp, TryOnBorder, RoundedCornerShape(30.dp)),
                 contentAlignment = Alignment.Center,
             ) {
+                if (handBitmap != null) {
+                    SourceReadyPill(
+                        onClick = { openCapture() },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(14.dp)
+                    )
+                }
+
                 when {
                     remoteTryOnBitmap != null -> {
                         Image(
@@ -476,6 +488,49 @@ private suspend fun loadRemoteBitmap(storagePath: String): Bitmap? {
             .downloadAuthenticated(storagePath)
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }.getOrNull()
+}
+
+@Composable
+private fun SourceReadyPill(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(36.dp),
+        shape = RoundedCornerShape(999.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.White.copy(alpha = 0.92f),
+            contentColor = TryOnAccent,
+        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = 12.dp,
+            vertical = 0.dp,
+        )
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                text = "已上传手图",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                )
+            )
+            Icon(
+                imageVector = Icons.Default.PhotoCamera,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = TryOnMuted,
+            )
+        }
+    }
 }
 
 private fun bitmapToJpegBytes(bitmap: Bitmap): ByteArray {
