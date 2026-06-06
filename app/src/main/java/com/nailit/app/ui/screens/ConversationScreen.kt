@@ -376,7 +376,13 @@ fun ConversationScreen(
                     )
                 )
                 Text(
-                    text = bottomCoachLine(permissionHint, uiState.coachLine, uiState.mode, currentStep),
+                    text = bottomCoachLine(
+                        permissionHint = permissionHint,
+                        coachLine = uiState.coachLine,
+                        mode = uiState.mode,
+                        currentStep = currentStep,
+                        realtimeError = realtimeState.errorMessage,
+                    ),
                     style = MaterialTheme.typography.bodyLarge.copy(
                         color = Color.White.copy(alpha = 0.92f),
                         lineHeight = 24.sp,
@@ -600,8 +606,10 @@ private fun bottomCoachLine(
     coachLine: String,
     mode: LiveGuideMode,
     currentStep: ExecutionStep?,
+    realtimeError: String,
 ): String {
     if (!permissionHint.isNullOrBlank()) return permissionHint
+    if (realtimeError.isNotBlank()) return realtimeError
     if (coachLine.isNotBlank()) return coachLine
     return when (mode) {
         LiveGuideMode.Connecting -> "我先接管这一轮流程。"
@@ -663,8 +671,23 @@ private fun demoSteps(): List<ExecutionStep> {
 }
 
 private fun Bitmap.toBase64Jpeg(): String {
+    val maxSide = 960
+    val scaled = if (width > maxSide || height > maxSide) {
+        val scale = minOf(maxSide.toFloat() / width.toFloat(), maxSide.toFloat() / height.toFloat())
+        Bitmap.createScaledBitmap(
+            this,
+            (width * scale).toInt().coerceAtLeast(1),
+            (height * scale).toInt().coerceAtLeast(1),
+            true,
+        )
+    } else {
+        this
+    }
     val output = ByteArrayOutputStream()
-    compress(Bitmap.CompressFormat.JPEG, 82, output)
+    scaled.compress(Bitmap.CompressFormat.JPEG, 68, output)
+    if (scaled !== this) {
+        scaled.recycle()
+    }
     return Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
 }
 

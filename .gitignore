@@ -53,6 +53,7 @@ supabase/.temp/
 # Local videos and parsed assets
 videos/
 parse_videos.py
+upload_best_frames.py
 
 # Local deploy output / scratch
 tmp/

@@ -15,6 +15,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
 import android.util.Base64
+import java.util.UUID
 
 data class QwenRealtimeState(
     val status: QwenRealtimeStatus = QwenRealtimeStatus.Idle,
@@ -55,8 +56,10 @@ class QwenRealtimeSessionManager {
             lastEvent = "opening_socket",
         )
 
+        val baseUrl = tokenPayload.websocket_url.ifBlank { BuildConfig.QWEN_REALTIME_WS_URL }
+        val finalUrl = ensureModelQuery(baseUrl, tokenPayload.model.ifBlank { BuildConfig.QWEN_REALTIME_MODEL })
         val request = Request.Builder()
-            .url(tokenPayload.websocket_url.ifBlank { BuildConfig.QWEN_REALTIME_WS_URL })
+            .url(finalUrl)
             .addHeader("Authorization", "Bearer ${tokenPayload.token}")
             .build()
 
@@ -77,6 +80,7 @@ class QwenRealtimeSessionManager {
                 _state.value = _state.value.copy(
                     status = QwenRealtimeStatus.Closed,
                     lastEvent = "closing:$code:$reason",
+                    errorMessage = "WS_CLOSING:$code:$reason",
                 )
             }
 
@@ -84,14 +88,28 @@ class QwenRealtimeSessionManager {
                 _state.value = _state.value.copy(
                     status = QwenRealtimeStatus.Closed,
                     lastEvent = "closed:$code:$reason",
+                    errorMessage = "WS_CLOSED:$code:$reason",
                 )
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                val statusCode = response?.code
+                val statusMessage = response?.message
                 _state.value = _state.value.copy(
                     status = QwenRealtimeStatus.Error,
                     lastEvent = t.message ?: "socket_failure",
-                    errorMessage = t.message ?: "socket_failure",
+                    errorMessage = buildString {
+                        append("WS_FAILURE:")
+                        append(t.message ?: "socket_failure")
+                        if (statusCode != null) {
+                            append(" HTTP_")
+                            append(statusCode)
+                        }
+                        if (!statusMessage.isNullOrBlank()) {
+                            append(" ")
+                            append(statusMessage)
+                        }
+                    },
                 )
             }
         })
@@ -159,15 +177,13 @@ class QwenRealtimeSessionManager {
     private fun buildSessionUpdate(model: String): String {
         return """
             {
+              "event_id": "${UUID.randomUUID()}",
               "type": "session.update",
               "session": {
                 "model": "${model.ifBlank { BuildConfig.QWEN_REALTIME_MODEL }}",
                 "modalities": ["text", "audio"],
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
-                "turn_detection": {
-                  "type": "server_vad"
-                }
+                "input_audio_format": "pcm",
+                "output_audio_format": "pcm"
               }
             }
         """.trimIndent()
@@ -202,11 +218,13 @@ class QwenRealtimeSessionManager {
                     )
                 }
                 "error" -> {
-                    val message = payload["message"]?.jsonPrimitive?.content ?: "realtime_error"
+                    val message = payload["message"]?.jsonPrimitive?.content
+                        ?: payload["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
+                        ?: text
                     _state.value = _state.value.copy(
                         status = QwenRealtimeStatus.Error,
                         lastEvent = "error",
-                        errorMessage = message,
+                        errorMessage = "WS_EVENT_ERROR:$message",
                     )
                 }
                 else -> {
@@ -217,5 +235,11 @@ class QwenRealtimeSessionManager {
                 }
             }
         }
+    }
+
+    private fun ensureModelQuery(url: String, model: String): String {
+        if ("model=" in url) return url
+        val separator = if ("?" in url) "&" else "?"
+        return "$url${separator}model=$model"
     }
 }
