@@ -10,8 +10,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.ui.screens.AdaptationScreen
+import com.nailit.app.ui.screens.FinishCaptureScreen
 import com.nailit.app.ui.screens.HomeScreen
 import com.nailit.app.ui.screens.ConversationScreen
+import com.nailit.app.ui.screens.SharePosterScreen
 
 @Composable
 fun NailItApp() {
@@ -45,7 +47,18 @@ fun NailItApp() {
                 onBack = { navController.popBackStack() },
                 onOpenTutorial = { navController.navigate("home") },
                 onOpenTryOn = { navController.navigate("adaptation") },
-                onOpenSop = { navController.navigate("adaptation") }
+                onOpenSop = { navController.navigate("finish_capture") }
+            )
+        }
+        composable("finish_capture") {
+            FinishCaptureScreen(
+                onBack = { navController.popBackStack() },
+                onContinue = { navController.navigate("share_poster") }
+            )
+        }
+        composable("share_poster") {
+            SharePosterScreen(
+                onBack = { navController.popBackStack() }
             )
         }
     }

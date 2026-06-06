@@ -21,6 +21,7 @@ data class NailSessionSnapshot(
     val currentStepTitle: String? = null,
     val estimatedTotalMinutes: Int = 0,
     val targetImagePath: String? = null,
+    val finalResultPath: String? = null,
     val executionSteps: List<ExecutionStep> = emptyList(),
     // AI Parsed Cache
     val sourceParseJson: JsonObject? = null,

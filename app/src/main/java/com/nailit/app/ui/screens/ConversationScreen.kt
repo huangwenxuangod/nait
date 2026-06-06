@@ -346,6 +346,8 @@ fun ConversationScreen(
                                         currentStepIndex = uiState.stepIndex,
                                         currentStepTitle = nextStep?.title,
                                     )
+                                } else {
+                                    onOpenSop()
                                 }
                             }
                         },
