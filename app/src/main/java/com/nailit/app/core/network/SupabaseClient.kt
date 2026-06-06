@@ -23,8 +23,8 @@ object SupabaseManager {
     private const val bucketName = "nail-it-assets"
 
     val client = createSupabaseClient(
-        supabaseUrl = "https://unegfymwpzicriyjhukl.supabase.co",
-        supabaseKey = "sb_publishable_I5DTHgZlBPvw3-5mzsjquQ_BwIzZUox"
+        supabaseUrl = com.nailit.app.BuildConfig.SUPABASE_URL,
+        supabaseKey = com.nailit.app.BuildConfig.SUPABASE_ANON_KEY
     ) {
         install(Postgrest)
         install(Storage)

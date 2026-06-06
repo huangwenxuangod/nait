@@ -25,7 +25,7 @@ android {
         val qwenRealtimeModel = System.getenv("NAILIT_QWEN_REALTIME_MODEL")
             ?: "qwen3.5-omni-plus-realtime"
         val supabaseUrl = System.getenv("NAILIT_SUPABASE_URL")
-            ?: "https://unegfymwpzicriyjhukl.supabase.co"
+            ?: "http://129.204.200.38:8000"
         val supabaseAnonKey = System.getenv("NAILIT_SUPABASE_ANON_KEY")
             ?: "sb_publishable_I5DTHgZlBPvw3-5mzsjquQ_BwIzZUox"
 
