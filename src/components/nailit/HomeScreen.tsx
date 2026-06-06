@@ -1,6 +1,8 @@
-import { Sparkles, Link2, History, FileText, ListChecks, ScanLine, Play, Flame, ChevronRight, ChevronLeft } from "lucide-react";
+import { Sparkles, Link2, History, FileText, ListChecks, ScanLine, Play, Flame, ChevronRight, Loader2, CheckCircle2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { PhoneFrame } from "./PhoneFrame";
+import { parseTutorialLink } from "@/lib/api/tutorial.functions";
+import type { TutorialData } from "@/lib/types";
 import tutorialCover from "@/assets/tutorial-cover.jpg";
 import insp1 from "@/assets/insp-1.jpg";
 import insp2 from "@/assets/insp-2.jpg";
@@ -11,7 +13,8 @@ import insp5 from "@/assets/insp-5.jpg";
 interface Props {
   handImage: string | null;
   onHandChange: (url: string | null) => void;
-  onNext: () => void;
+  onParseComplete: (data: TutorialData) => void;
+  onQuickStart: () => void;
 }
 
 const steps = ["修剪", "底油", "颜色", "封层", "亮油", "完成"];
@@ -23,17 +26,72 @@ const inspirations = [
   { img: insp5, name: "气质豆沙款", count: "7643 人解析" },
 ];
 
-export function HomeScreen({ onNext }: Props) {
+const PARSE_STAGES = [
+  { icon: "🔍", label: "识别链接来源", detail: "检测到 抖音 平台视频" },
+  { icon: "📥", label: "获取视频内容", detail: "提取视频画面与音频流" },
+  { icon: "🤖", label: "AI 拆解分析中", detail: "识别款式、色号、工具与步骤" },
+  { icon: "✨", label: "生成专属 SOP", detail: "结构化教程数据已就绪" },
+];
+
+export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
   const [link, setLink] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [parseStage, setParseStage] = useState(0);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const stageTimer = useRef<number | null>(null);
+
+  const startParse = async (url: string) => {
+    setLoading(true);
+    setParseError(null);
+    setParseStage(0);
+
+    // Stage animation: advance through stages visually
+    const advance = () => {
+      stageTimer.current = window.setTimeout(() => {
+        setParseStage((s) => {
+          if (s < PARSE_STAGES.length - 1) {
+            advance();
+            return s + 1;
+          }
+          return s;
+        });
+      }, 800);
+    };
+    advance();
+
+    try {
+      const result = await parseTutorialLink({ data: { url } });
+      if (stageTimer.current) clearTimeout(stageTimer.current);
+      setParseStage(PARSE_STAGES.length - 1);
+      setTimeout(() => {
+        setLoading(false);
+        onParseComplete(result);
+      }, 500);
+    } catch {
+      if (stageTimer.current) clearTimeout(stageTimer.current);
+      setParseError("解析失败，请确认链接有效后重试");
+      setLoading(false);
+    }
+  };
 
   const handlePaste = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) setLink(text);
-    } catch {
-      setLink("https://v.douyin.com/example-nail-tutorial");
+    let url = link.trim();
+    if (!url) {
+      try {
+        url = await navigator.clipboard.readText();
+        if (url) setLink(url);
+      } catch {
+        url = "";
+      }
     }
-    setTimeout(onNext, 350);
+    if (!url) return;
+    startParse(url);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && link.trim()) {
+      startParse(link.trim());
+    }
   };
 
   return (
@@ -64,20 +122,24 @@ export function HomeScreen({ onNext }: Props) {
               <input
                 value={link}
                 onChange={(e) => setLink(e.target.value)}
+                onKeyDown={handleKeyDown}
                 placeholder="粘贴美甲教程链接(抖音/小红书/YouTube)"
                 className="flex-1 min-w-0 bg-transparent text-[12px] placeholder:text-muted-foreground/70 focus:outline-none py-2"
+                disabled={loading}
               />
             </div>
             <button
               onClick={handlePaste}
-              className="cta-gradient text-white text-sm px-5 py-2.5 rounded-xl shadow-sm active:scale-[0.97] transition"
+              disabled={loading}
+              className="cta-gradient text-white text-sm px-5 py-2.5 rounded-xl shadow-sm active:scale-[0.97] transition disabled:opacity-50"
             >
-              粘贴
+              {loading ? "解析中" : "粘贴"}
             </button>
-            {/* shimmer */}
-            <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
-              <div className="absolute inset-y-0 -inset-x-1/2 w-1/3 bg-gradient-to-r from-transparent via-brand/10 to-transparent animate-shimmer" />
-            </div>
+            {!loading && (
+              <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
+                <div className="absolute inset-y-0 -inset-x-1/2 w-1/3 bg-gradient-to-r from-transparent via-brand/10 to-transparent animate-shimmer" />
+              </div>
+            )}
           </div>
           <p className="mt-2.5 px-1 text-[11px] text-muted-foreground tracking-wide flex items-center gap-1">
             支持抖音、小红书、YouTube 等平台链接
@@ -127,7 +189,7 @@ export function HomeScreen({ onNext }: Props) {
             </div>
 
             {/* Cover */}
-            <button onClick={onNext} className="relative w-full aspect-[16/10] rounded-2xl overflow-hidden group active:scale-[0.99] transition">
+            <button onClick={onQuickStart} className="relative w-full aspect-[16/10] rounded-2xl overflow-hidden group active:scale-[0.99] transition">
               <img src={tutorialCover} alt="教程示例" className="absolute inset-0 w-full h-full object-cover" loading="lazy" width={1024} height={1024} />
               <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent" />
               <span className="absolute inset-0 flex items-center justify-center">
@@ -166,7 +228,7 @@ export function HomeScreen({ onNext }: Props) {
             </div>
             <div className="flex gap-2.5 overflow-x-auto -mx-1 px-1 pb-1 no-scrollbar">
               {inspirations.map((i) => (
-                <button key={i.name} onClick={onNext} className="shrink-0 w-[88px] text-left active:scale-[0.97] transition">
+                <button key={i.name} onClick={onQuickStart} className="shrink-0 w-[88px] text-left active:scale-[0.97] transition">
                   <div className="w-[88px] h-[88px] rounded-2xl overflow-hidden bg-muted">
                     <img src={i.img} alt={i.name} loading="lazy" width={512} height={512} className="w-full h-full object-cover" />
                   </div>
@@ -185,6 +247,62 @@ export function HomeScreen({ onNext }: Props) {
         <TabItem icon={<Sparkles className="w-5 h-5" strokeWidth={1.6} />} label="灵感" />
         <TabItem icon={<UserIcon />} label="我的" />
       </div>
+
+      {/* ====== Parsing Overlay ====== */}
+      {loading && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-8" style={{ backgroundColor: "rgba(250,250,250,0.97)" }}>
+          {/* Animated ring */}
+          <div className="mb-10 relative">
+            <div className="w-20 h-20 rounded-full border-2 animate-spin" style={{ borderColor: "rgba(212,163,163,0.15)", borderTopColor: "#D4A3A3" }} />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Sparkles className="w-8 h-8 text-brand animate-sparkle" strokeWidth={1.5} />
+            </div>
+          </div>
+
+          {/* Stage steps */}
+          <div className="w-full max-w-[300px] space-y-1">
+            {PARSE_STAGES.map((stage, i) => {
+              const done = i < parseStage;
+              const active = i === parseStage;
+              return (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 py-2.5 px-4 rounded-xl transition-all duration-500"
+                  style={{
+                    opacity: active || done ? 1 : 0.3,
+                    backgroundColor: active ? "rgba(212,163,163,0.06)" : "transparent",
+                  }}
+                >
+                  <span className="text-lg shrink-0 w-7 text-center">
+                    {done ? <CheckCircle2 className="w-5 h-5" style={{ color: "#A8D5BA" }} /> : stage.icon}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: active ? "#D4A3A3" : done ? "#9CA3AF" : "#B0B0B0" }}>
+                      {stage.label}
+                    </p>
+                    {active && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{stage.detail}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Error */}
+          {parseError && (
+            <div className="mt-6 flex flex-col items-center gap-3">
+              <p className="text-sm text-destructive">{parseError}</p>
+              <button
+                onClick={() => { setLoading(false); setParseError(null); }}
+                className="px-6 py-2 rounded-full text-xs tracking-wider border border-destructive/30 text-destructive"
+              >
+                关闭
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </PhoneFrame>
   );
 }

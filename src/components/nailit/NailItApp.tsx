@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { TutorialData } from "@/lib/types";
 import { HomeScreen } from "./HomeScreen";
 import { TryOnScreen } from "./TryOnScreen";
 import { PrepScreen } from "./PrepScreen";
@@ -9,27 +10,70 @@ type Screen = "home" | "tryon" | "prep" | "focus";
 export function NailItApp() {
   const [screen, setScreen] = useState<Screen>("home");
   const [handImage, setHandImage] = useState<string | null>(null);
+  const [missingItems, setMissingItems] = useState<string[]>([]);
+  const [tutorialData, setTutorialData] = useState<TutorialData | null>(null);
+
+  const screenKey = useRef(0);
+
+  const navigate = (next: Screen) => {
+    screenKey.current += 1;
+    setScreen(next);
+  };
+
+  const render = (children: React.ReactNode) => (
+    <div
+      key={screenKey.current}
+      style={{
+        animation: "screen-fade-in 0.25s ease-out",
+      }}
+    >
+      {children}
+    </div>
+  );
 
   switch (screen) {
     case "home":
-      return (
+      return render(
         <HomeScreen
           handImage={handImage}
           onHandChange={setHandImage}
-          onNext={() => setScreen("tryon")}
-        />
+          onParseComplete={(data) => {
+            setTutorialData(data);
+            navigate("tryon");
+          }}
+          onQuickStart={() => navigate("tryon")}
+        />,
       );
     case "tryon":
-      return (
+      return render(
         <TryOnScreen
           handImage={handImage}
-          onBack={() => setScreen("home")}
-          onConfirm={() => setScreen("prep")}
-        />
+          tutorialData={tutorialData}
+          onBack={() => navigate("home")}
+          onConfirm={() => {
+            setMissingItems([]);
+            navigate("prep");
+          }}
+        />,
       );
     case "prep":
-      return <PrepScreen onBack={() => setScreen("tryon")} onStart={() => setScreen("focus")} />;
+      return render(
+        <PrepScreen
+          tutorialData={tutorialData}
+          onBack={() => navigate("tryon")}
+          onStart={(missing) => {
+            setMissingItems(missing);
+            navigate("focus");
+          }}
+        />,
+      );
     case "focus":
-      return <FocusScreen onExit={() => setScreen("home")} />;
+      return render(
+        <FocusScreen
+          onExit={() => navigate("home")}
+          missingItems={missingItems}
+          tutorialData={tutorialData}
+        />,
+      );
   }
 }
