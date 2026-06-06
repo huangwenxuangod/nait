@@ -27,7 +27,7 @@ android {
         val supabaseUrl = System.getenv("NAILIT_SUPABASE_URL")
             ?: "http://129.204.200.38:8000"
         val supabaseAnonKey = System.getenv("NAILIT_SUPABASE_ANON_KEY")
-            ?: "sb_publishable_I5DTHgZlBPvw3-5mzsjquQ_BwIzZUox"
+            ?: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE"
 
         buildConfigField("String", "OPENAI_BASE_URL", "\"$openAiBaseUrl\"")
         buildConfigField("String", "OPENAI_MODEL", "\"$openAiModel\"")
