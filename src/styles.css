@@ -140,3 +140,8 @@
 @utility animate-drift {
   animation: drift-up 3s ease-in-out infinite;
 }
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
