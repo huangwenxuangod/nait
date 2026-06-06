@@ -14,13 +14,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -95,7 +92,7 @@ fun AdaptationScreen(
     var isPreparingGuide by remember { mutableStateOf(false) }
     var statusText by remember {
         mutableStateOf(
-            if (handBitmap == null) "先拍一张手图，生成试戴结果。" else "手图已就绪，开始试戴。"
+            if (handBitmap == null) "先拍一张手图。" else "开始生成试戴结果。"
         )
     }
 
@@ -108,7 +105,7 @@ fun AdaptationScreen(
                 handBitmap = bitmap
                 HandPhotoRuntime.currentBitmap = bitmap
                 remoteTryOnBitmap = null
-                statusText = "手图已更新，重新生成试戴即可。"
+                statusText = "手图已更新。"
             } else {
                 statusText = "图片读取失败，请重新选择。"
             }
@@ -122,7 +119,7 @@ fun AdaptationScreen(
             handBitmap = bitmap
             HandPhotoRuntime.currentBitmap = bitmap
             remoteTryOnBitmap = null
-            statusText = "真实拍照已完成，重新生成试戴即可。"
+            statusText = "手图已更新。"
         } else {
             statusText = "未拍到照片，请再试一次。"
         }
@@ -184,7 +181,7 @@ fun AdaptationScreen(
                     storagePath = uploadPath,
                 )
                 val tryOn = repository.createTryOn(session.sessionId)
-                val tryOnResult = repository.fetchTryOnResult(session.sessionId)
+                repository.fetchTryOnResult(session.sessionId)
                 val tryOnPath = repository.fetchTryOnImagePath(session.sessionId)
                 val tryOnBitmap = tryOnPath?.let { loadRemoteBitmap(it) }
 
@@ -196,18 +193,18 @@ fun AdaptationScreen(
                     tryOnStatus = tryOn.status,
                     targetImagePath = tryOnPath,
                 )
-                Pair(tryOnResult, tryOnBitmap)
-            }.onSuccess { payload ->
-                remoteTryOnBitmap = payload.second
-                statusText = if (payload.second != null) {
-                    "试戴结果已生成，下一步进入视频带做。"
+                tryOnBitmap
+            }.onSuccess { tryOnBitmap ->
+                remoteTryOnBitmap = tryOnBitmap
+                statusText = if (tryOnBitmap != null) {
+                    "试戴结果已生成。"
                 } else {
-                    "试戴分析已生成，但结果图暂时没读到。"
+                    "结果已返回，但图片暂时没读到。"
                 }
             }.onFailure { error ->
                 val detail = error.message ?: "未知错误"
                 statusText = if (detail.contains("Object not found", ignoreCase = true)) {
-                    "试戴失败：手图没有真正上传到 Supabase Storage。请重试上传，并检查 bucket / RLS 配置。"
+                    "手图没有真正上传成功，请重试。"
                 } else {
                     "试戴生成失败：$detail"
                 }
@@ -225,7 +222,7 @@ fun AdaptationScreen(
 
         scope.launch {
             isPreparingGuide = true
-            statusText = "正在生成视频带做流程..."
+            statusText = "正在进入视频带做..."
             runCatching {
                 repository.generateExecutionPackage(session.sessionId)
                 repository.fetchExecutionPackage(session.sessionId)
@@ -237,7 +234,7 @@ fun AdaptationScreen(
                     currentStepTitle = executionPackage?.steps?.firstOrNull()?.title,
                     executionSteps = executionPackage?.steps ?: session.executionSteps,
                 )
-                statusText = "流程已就绪，进入视频带做。"
+                statusText = "流程已就绪。"
                 onContinue()
             }.onFailure { error ->
                 statusText = "流程生成失败：${error.message ?: "未知错误"}"
@@ -267,9 +264,7 @@ fun AdaptationScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = TryOnBg,
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = TryOnBg)
             )
         },
         containerColor = TryOnBg,
@@ -278,40 +273,35 @@ fun AdaptationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 20.dp, vertical = 18.dp)
+                .padding(horizontal = 20.dp, vertical = 16.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            CompareCard(
-                title = "原图",
-                subtitle = "你的手图",
-                bitmap = handBitmap,
-                emptyText = "还没有手图",
-            )
-
-            CompareCard(
-                title = "试戴图",
-                subtitle = "AI 渲染结果",
-                bitmap = remoteTryOnBitmap,
-                emptyText = if (isRendering) "正在生成..." else "点击下方按钮开始试戴",
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(TryOnCard)
-                    .border(1.dp, TryOnBorder, RoundedCornerShape(18.dp))
-                    .padding(16.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    text = statusText,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = TryOnMuted,
-                        lineHeight = 22.sp,
-                    )
+                MinimalImagePanel(
+                    title = "原图",
+                    bitmap = handBitmap,
+                    emptyText = "还没有手图",
+                    modifier = Modifier.weight(1f),
+                )
+                MinimalImagePanel(
+                    title = "试戴结果",
+                    bitmap = remoteTryOnBitmap,
+                    emptyText = if (isRendering) "正在生成..." else "点下方开始试戴",
+                    modifier = Modifier.weight(1f),
                 )
             }
+
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = TryOnMuted,
+                    lineHeight = 18.sp,
+                )
+            )
 
             if (remoteTryOnBitmap == null) {
                 Button(
@@ -339,7 +329,6 @@ fun AdaptationScreen(
                             text = if (handBitmap == null) "拍手并开始试戴" else "开始试戴",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 1.sp,
                             )
                         )
                     }
@@ -361,8 +350,7 @@ fun AdaptationScreen(
                         )
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text("重试")
+                        Text("重试", modifier = Modifier.padding(start = 8.dp))
                     }
 
                     Button(
@@ -385,7 +373,7 @@ fun AdaptationScreen(
                             )
                         } else {
                             Text(
-                                text = "开始视频带做",
+                                text = "语音继续",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
                                 )
@@ -399,43 +387,30 @@ fun AdaptationScreen(
 }
 
 @Composable
-private fun CompareCard(
+private fun MinimalImagePanel(
     title: String,
-    subtitle: String,
     bitmap: Bitmap?,
     emptyText: String,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(28.dp))
-            .background(TryOnCard)
-            .border(1.dp, TryOnBorder, RoundedCornerShape(28.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    color = TryOnText,
-                    fontWeight = FontWeight.SemiBold,
-                )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge.copy(
+                color = TryOnMuted,
+                fontWeight = FontWeight.SemiBold,
             )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    color = TryOnMuted,
-                )
-            )
-        }
-
+        )
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1.08f)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFFF1E8E1)),
+                .height(260.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .background(TryOnCard)
+                .border(1.dp, TryOnBorder, RoundedCornerShape(26.dp)),
             contentAlignment = Alignment.Center,
         ) {
             if (bitmap != null) {
