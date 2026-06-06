@@ -187,6 +187,10 @@ function createImageEditFormData({
   form.set("model", model);
   form.set("prompt", prompt);
   form.set("size", size);
+  form.set("quality", "auto");
+  form.set("format", "png");
+  form.set("background", "auto");
+  form.set("moderation", "auto");
 
   const inputs = (imageInputs && imageInputs.length > 0) ? imageInputs : [
     {
@@ -198,7 +202,7 @@ function createImageEditFormData({
 
   inputs.forEach((image, index) => {
     form.append(
-      inputs.length > 1 ? "image[]" : "image",
+      "image",
       new Blob([Uint8Array.from(atob(image.imageBase64), (c) => c.charCodeAt(0))], {
         type: image.mimeType ?? "image/jpeg",
       }),
