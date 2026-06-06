@@ -57,12 +57,23 @@ data class ConfirmAssetUploadResponse(
 @Serializable
 data class CreateTryOnRequest(
     val session_id: String,
+    val nail_position_hints: List<NailPositionHint> = emptyList(),
 )
 
 @Serializable
 data class CreateTryOnResponse(
     val session_id: String? = null,
     val status: String? = null,
+)
+
+@Serializable
+data class NailPositionHint(
+    val finger: String,
+    val center_x: Float,
+    val center_y: Float,
+    val width_ratio: Float,
+    val height_ratio: Float,
+    val angle_deg: Float,
 )
 
 @Serializable

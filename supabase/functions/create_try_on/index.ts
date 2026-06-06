@@ -13,6 +13,12 @@ interface TryOnPayload {
   highlight_points: string[];
   risk_points: string[];
   render_variants: string[];
+  nail_layout_summary: string;
+  finger_design_map: Array<{
+    finger: string;
+    design: string;
+    placement: string;
+  }>;
   render_prompt: string;
   note: string;
 }
@@ -100,8 +106,27 @@ Deno.serve(async (req) => {
       );
     }
 
+    const { data: tutorialAsset } = await supabase
+      .from("session_assets")
+      .select("storage_path")
+      .eq("session_id", body.session_id)
+      .eq("asset_type", "tutorial_frame")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     const handBytes = new Uint8Array(await handFile.arrayBuffer());
     const handBase64 = btoa(String.fromCharCode(...handBytes));
+    let tutorialBase64 = "";
+    if (tutorialAsset?.storage_path) {
+      const { data: tutorialFile, error: tutorialFileError } = await supabase.storage
+        .from(BUCKET)
+        .download(tutorialAsset.storage_path);
+      if (!tutorialFileError && tutorialFile) {
+        const tutorialBytes = new Uint8Array(await tutorialFile.arrayBuffer());
+        tutorialBase64 = btoa(String.fromCharCode(...tutorialBytes));
+      }
+    }
 
     const parseJson = parseRecord?.parse_json ?? {};
     const styleName = session?.style_name ?? "未命名款式";
@@ -110,11 +135,12 @@ Deno.serve(async (req) => {
     const resultJson = hasOpenAiConfig()
       ? await createJsonResponse<TryOnPayload>({
         system:
-          "You are a nail try-on planner. Given a nail style and hand context, output concise Chinese JSON describing fit and a high quality image-edit prompt. The image edit should preserve the original hand and only add realistic nail design.",
+          "你是一个电商级美甲试戴规划器。你会同时看到模板图和用户手图。你的任务是先分析模板款式在每根手指上的设计分布，再结合用户手图的手指方向与甲面位置，输出可直接给图像编辑模型使用的高精度中文 JSON。必须强调：只修改甲面，不修改肤色、手势、背景和光线。",
         user: JSON.stringify({
           style_name: styleName,
           source_url: session?.source_url ?? "",
           parse_json: parseJson,
+          nail_position_hints: body.nail_position_hints ?? [],
         }),
         jsonSchema: {
           type: "object",
@@ -125,6 +151,20 @@ Deno.serve(async (req) => {
             highlight_points: { type: "array", items: { type: "string" } },
             risk_points: { type: "array", items: { type: "string" } },
             render_variants: { type: "array", items: { type: "string" } },
+            nail_layout_summary: { type: "string" },
+            finger_design_map: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  finger: { type: "string" },
+                  design: { type: "string" },
+                  placement: { type: "string" },
+                },
+                required: ["finger", "design", "placement"],
+              },
+            },
             render_prompt: { type: "string" },
             note: { type: "string" },
           },
@@ -134,10 +174,13 @@ Deno.serve(async (req) => {
             "highlight_points",
             "risk_points",
             "render_variants",
+            "nail_layout_summary",
+            "finger_design_map",
             "render_prompt",
             "note",
           ],
         },
+        imageInputs: listImageInputs(tutorialBase64, handBase64),
       }).catch((error) => {
         throw prefixedError("TRYON_PROMPT_PLAN_FAILED", "生成试戴 prompt 失败", error);
       })
@@ -147,16 +190,40 @@ Deno.serve(async (req) => {
         highlight_points: ["通勤友好", "手部会显得更细长", "整体气质偏温柔"],
         risk_points: ["高闪过多会显得廉价", "法式边过宽会显手短"],
         render_variants: ["更暖一点", "更自然一点", "更透亮一点"],
+        nail_layout_summary: "模板图整体是通透浅底，局部有高光和法式/装饰变化。",
+        finger_design_map: [
+          { finger: "thumb", design: "通透浅底", placement: "满甲" },
+          { finger: "index", design: "法式或高光装饰", placement: "甲尖与中轴" },
+          { finger: "middle", design: "主视觉高光", placement: "甲面中轴" },
+          { finger: "ring", design: "同模板主色", placement: "满甲" },
+          { finger: "pinky", design: "弱化装饰", placement: "甲尖" },
+        ],
         render_prompt: renderPrompt,
         note: "Fallback try-on rendered without OPENAI_API_KEY.",
       };
 
     const imageBase64 = hasOpenAiConfig()
       ? await createImageEdit({
-        prompt: resultJson.render_prompt,
+        prompt: `${resultJson.render_prompt}\n\n补充约束：${resultJson.nail_layout_summary}\n每根手指设计映射：${resultJson.finger_design_map.map((item) => `${item.finger}:${item.design}(${item.placement})`).join("；")}。\n用户甲面位置提示：${formatNailHints(body.nail_position_hints ?? [])}。请优先把设计落在这些甲面位置附近，只修改对应甲面区域。`,
         imageBase64: handBase64,
         mimeType: handFile.type || "image/jpeg",
         fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
+        imageInputs: [
+          {
+            imageBase64: handBase64,
+            mimeType: handFile.type || "image/jpeg",
+            fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
+          },
+          ...(
+            tutorialBase64
+              ? [{
+                  imageBase64: tutorialBase64,
+                  mimeType: "image/jpeg",
+                  fileName: "tutorial-reference.jpg",
+                }]
+              : []
+          ),
+        ],
       }).catch((error) => {
         throw prefixedError("TRYON_IMAGE_GENERATION_FAILED", "生成试戴图片失败", error);
       })
@@ -222,13 +289,47 @@ function buildRenderPrompt(styleName: string, parseJson: Record<string, unknown>
   const visuals = Array.isArray(parseJson?.visual_elements) ? parseJson.visual_elements.join("、") : "";
 
   return [
-    "Edit the uploaded hand photo into a realistic nail try-on preview.",
-    "Keep the original hand, skin tone, finger pose, background, and lighting unchanged.",
-    "Only change the nail area.",
-    `Apply nail design style: ${styleName}.`,
-    tags ? `Style tags: ${tags}.` : "",
-    visuals ? `Visual elements: ${visuals}.` : "",
-    "Make the manicure photorealistic, elegant, e-commerce ready, polished, natural edge fit, consistent perspective, subtle reflections.",
-    "Do not add rings, extra fingers, extra hands, text, stickers, watermarks, or unrelated decorations.",
+    "请把用户手图编辑成真实的美甲试戴图。",
+    "你会同时参考模板图和用户手图。",
+    "必须保留用户原始手势、手指数量、肤色、背景、透视和光线。",
+    "只能修改可见甲面区域，不允许改动皮肤、桌面、电脑、手指结构。",
+    `模板款式名称：${styleName}。`,
+    tags ? `模板风格标签：${tags}。` : "",
+    visuals ? `模板视觉元素：${visuals}。` : "",
+    "请把模板图里的颜色关系、法式边、猫眼高光、跳色、饰品位置准确迁移到用户指甲上。",
+    "生成效果要像电商试戴图，甲面贴合、边缘自然、反光克制、不要假手假甲。",
+    "禁止新增戒指、手链、贴纸、水印、文字、额外手指或额外手部。",
   ].filter(Boolean).join(" ");
+}
+
+function listImageInputs(tutorialBase64: string, handBase64: string) {
+  const images = [
+    {
+      imageBase64: handBase64,
+      mimeType: "image/jpeg",
+    },
+  ];
+  if (tutorialBase64) {
+    images.unshift({
+      imageBase64: tutorialBase64,
+      mimeType: "image/jpeg",
+    });
+  }
+  return images;
+}
+
+function formatNailHints(
+  hints: Array<{
+    finger: string;
+    center_x: number;
+    center_y: number;
+    width_ratio: number;
+    height_ratio: number;
+    angle_deg: number;
+  }>
+) {
+  if (!hints.length) return "none";
+  return hints.map((hint) =>
+    `${hint.finger}[cx=${hint.center_x.toFixed(3)}, cy=${hint.center_y.toFixed(3)}, w=${hint.width_ratio.toFixed(3)}, h=${hint.height_ratio.toFixed(3)}, angle=${hint.angle_deg.toFixed(1)}]`
+  ).join("; ");
 }

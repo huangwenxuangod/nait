@@ -1,6 +1,7 @@
 package com.nailit.app.ui.screens
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import android.util.Log
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,9 +48,11 @@ import androidx.compose.ui.unit.sp
 import com.nailit.app.R
 import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.core.preview.NailSessionSnapshot
+import com.nailit.app.core.network.SupabaseManager
 import com.nailit.app.core.preview.SupabaseFunctionRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
 import java.util.UUID
 import kotlin.math.absoluteValue
 
@@ -79,6 +83,16 @@ fun HomeScreen(
     var linkInput by remember { mutableStateOf("") }
     var statusText by remember { mutableStateOf<String?>(null) }
     var isCreating by remember { mutableStateOf(false) }
+
+    val clipboardManager = LocalClipboardManager.current
+    LaunchedEffect(Unit) {
+        runCatching {
+            val text = clipboardManager.getText()?.text
+            if (!text.isNullOrBlank() && (text.startsWith("http") || text.contains("douyin.com") || text.contains("xiaohongshu.com") || text.contains("v.douyin.com") || text.contains("xhslink.com"))) {
+                linkInput = text
+            }
+        }
+    }
 
     val templates = listOf(
         TemplateItem(
@@ -153,6 +167,15 @@ fun HomeScreen(
                             )
                         }
 
+                        val templateUploadDeferred = async {
+                            uploadPresetTemplateIfNeeded(
+                                context = context,
+                                repository = repository,
+                                remoteSessionId = remoteSessionId,
+                                template = currentTemplate,
+                            )
+                        }
+
                         NailSessionRuntime.current = NailSessionRuntime.current?.copy(
                             sessionId = remoteSessionId,
                             status = session.status ?: "draft",
@@ -165,6 +188,7 @@ fun HomeScreen(
                         )
 
                         val submit = submitDeferred.await()
+                        templateUploadDeferred.await()
                         NailSessionRuntime.current = NailSessionRuntime.current?.copy(
                             status = submit.status ?: "source_parsing",
                         )
@@ -347,4 +371,34 @@ private fun getInstallId(context: Context): String {
     return prefs.getString("install_id", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("install_id", it).apply()
     }
+}
+
+private suspend fun uploadPresetTemplateIfNeeded(
+    context: Context,
+    repository: SupabaseFunctionRepository,
+    remoteSessionId: String,
+    template: TemplateItem,
+) {
+    val upload = repository.prepareAssetUpload(
+        sessionId = remoteSessionId,
+        assetType = "tutorial_frame",
+        mimeType = "image/jpeg",
+    )
+    val uploadPath = upload.storage_path ?: return
+    val assetId = upload.asset_id ?: return
+    val bytes = templateBitmapBytes(context, template.imageRes) ?: return
+    SupabaseManager.uploadHandPhotoToPath(bytes, uploadPath)
+    repository.confirmAssetUpload(
+        sessionId = remoteSessionId,
+        assetId = assetId,
+        assetType = "tutorial_frame",
+        storagePath = uploadPath,
+    )
+}
+
+private fun templateBitmapBytes(context: Context, imageRes: Int): ByteArray? {
+    val bitmap = BitmapFactory.decodeResource(context.resources, imageRes) ?: return null
+    val output = ByteArrayOutputStream()
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, output)
+    return output.toByteArray()
 }

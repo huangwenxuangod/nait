@@ -3,16 +3,12 @@ package com.nailit.app.ui.screens
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
-import android.util.Log
 import android.util.Base64
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.filled.Warning
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -36,9 +32,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -67,10 +65,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.ContextCompat
 import com.nailit.app.core.model.ExecutionStep
 import com.nailit.app.core.network.SupabaseManager
@@ -90,10 +88,10 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.delay
 
 private val GuideBg = Color(0xFFF6F1EB)
 private val GuideText = Color(0xFF181311)
-private val GuideMuted = Color(0xFF7C7268)
 private val GuideAccent = Color(0xFF2A1D1A)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -118,6 +116,7 @@ fun ConversationScreen(
     var permissionHint by remember { mutableStateOf<String?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var targetBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var lensFacing by remember { mutableStateOf(CameraSelector.LENS_FACING_BACK) }
     val pendingImageFrame = remember { AtomicReference<String?>(null) }
     val hasSentImageThisTurn = remember { AtomicBoolean(false) }
     val recorder = remember {
@@ -215,6 +214,15 @@ fun ConversationScreen(
         }
     }
 
+    LaunchedEffect(isRecording, liveFrameBitmap) {
+        while (isRecording) {
+            (liveFrameBitmap ?: HandPhotoRuntime.currentBitmap)?.toBase64Jpeg()?.let { base64 ->
+                pendingImageFrame.set(base64)
+            }
+            delay(1000)
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             recorder.stop()
@@ -281,6 +289,7 @@ fun ConversationScreen(
                     HandPhotoRuntime.currentBitmap = bitmap
                 },
                 handBitmap = handBitmap,
+                lensFacing = lensFacing,
             )
 
             StatusPill(
@@ -290,11 +299,32 @@ fun ConversationScreen(
                     .padding(16.dp),
             )
 
+            IconButton(
+                onClick = {
+                    lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) {
+                        CameraSelector.LENS_FACING_FRONT
+                    } else {
+                        CameraSelector.LENS_FACING_BACK
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.Black.copy(alpha = 0.26f))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Cameraswitch,
+                    contentDescription = "切换摄像头",
+                    tint = Color.White,
+                )
+            }
+
             if (targetBitmap != null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(16.dp)
+                        .padding(top = 74.dp, end = 16.dp)
                         .size(width = 92.dp, height = 124.dp)
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color.White.copy(alpha = 0.9f))
@@ -308,63 +338,21 @@ fun ConversationScreen(
                     )
                 }
             } else if (activeSession?.tryOnStatus == "try_on_pending") {
-                Box(
+                SmallTryOnStateCard(
+                    text = "AI试戴中...",
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(16.dp)
-                        .size(width = 92.dp, height = 124.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(20.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                        Text(
-                            text = "AI试戴中...",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
+                        .padding(top = 74.dp, end = 16.dp),
+                    loading = true,
+                )
             } else if (activeSession?.tryOnStatus == "failed") {
-                Box(
+                SmallTryOnStateCard(
+                    text = "试戴未出图",
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(16.dp)
-                        .size(width = 92.dp, height = 124.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Black.copy(alpha = 0.52f))
-                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(20.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "Error",
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Text(
-                            text = "试戴未出图",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
+                        .padding(top = 74.dp, end = 16.dp),
+                    loading = false,
+                )
             }
 
             Column(
@@ -407,7 +395,7 @@ fun ConversationScreen(
                             uiState = workflow.onPause(uiState)
                         },
                         modifier = Modifier
-                            .weight(0.7f)
+                            .weight(1f)
                             .height(52.dp),
                         shape = RoundedCornerShape(18.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -418,10 +406,6 @@ fun ConversationScreen(
                         Icon(
                             imageVector = if (uiState.mode == LiveGuideMode.Paused) Icons.Default.PlayArrow else Icons.Default.Pause,
                             contentDescription = null,
-                        )
-                        Text(
-                            text = if (uiState.mode == LiveGuideMode.Paused) "继续" else "暂停",
-                            modifier = Modifier.padding(start = 8.dp)
                         )
                     }
 
@@ -460,7 +444,7 @@ fun ConversationScreen(
                             }
                         },
                         modifier = Modifier
-                            .weight(1.3f)
+                            .weight(1f)
                             .height(52.dp),
                         shape = RoundedCornerShape(18.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -469,13 +453,6 @@ fun ConversationScreen(
                         ),
                     ) {
                         Icon(Icons.Default.Mic, contentDescription = null)
-                        Text(
-                            text = if (isRecording) "发送语音" else "我好了",
-                            modifier = Modifier.padding(start = 8.dp),
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        )
                     }
                 }
             }
@@ -493,6 +470,7 @@ private fun LiveCameraStage(
     onCameraProviderReady: (ProcessCameraProvider) -> Unit,
     onFrameCaptured: (Bitmap) -> Unit,
     handBitmap: Bitmap?,
+    lensFacing: Int,
 ) {
     if (hasCameraPermission) {
         AndroidView(
@@ -506,8 +484,19 @@ private fun LiveCameraStage(
                         analyzerExecutor = analyzerExecutor,
                         onCameraProviderReady = onCameraProviderReady,
                         onFrameCaptured = onFrameCaptured,
+                        lensFacing = lensFacing,
                     )
                 }
+            },
+            update = {
+                bindCameraPreview(
+                    previewView = it,
+                    lifecycleOwner = lifecycleOwner,
+                    analyzerExecutor = analyzerExecutor,
+                    onCameraProviderReady = onCameraProviderReady,
+                    onFrameCaptured = onFrameCaptured,
+                    lensFacing = lensFacing,
+                )
             },
             modifier = Modifier.fillMaxSize(),
         )
@@ -535,6 +524,49 @@ private fun LiveCameraStage(
             ) {
                 Text("开启相机")
             }
+        }
+    }
+}
+
+@Composable
+private fun SmallTryOnStateCard(
+    text: String,
+    modifier: Modifier = Modifier,
+    loading: Boolean,
+) {
+    Box(
+        modifier = modifier
+            .size(width = 92.dp, height = 124.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.Black.copy(alpha = 0.58f))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(20.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = Color.White,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+            Text(
+                text = text,
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
@@ -571,7 +603,7 @@ private fun bottomCoachLine(
     return when (mode) {
         LiveGuideMode.Connecting -> "我先接管这一轮流程。"
         LiveGuideMode.Guiding -> currentStep?.instruction ?: "跟着我做当前这一步。"
-        LiveGuideMode.Waiting -> "先做这一层。做完直接说“我好了”。"
+        LiveGuideMode.Waiting -> "我在持续看着，你可以直接说话。"
         LiveGuideMode.Checking -> "我正在看你当前这一步，稍等一下。"
         LiveGuideMode.Paused -> "先停在这里，准备好了再继续。"
     }
@@ -585,7 +617,7 @@ private fun cameraStatusLabel(
         realtimeStatus == QwenRealtimeStatus.Connecting -> "连接中"
         realtimeStatus == QwenRealtimeStatus.Error -> "连接异常"
         mode == LiveGuideMode.Guiding -> "当前引导"
-        mode == LiveGuideMode.Waiting -> "等待你操作"
+        mode == LiveGuideMode.Waiting -> "实时对话"
         mode == LiveGuideMode.Checking -> "正在复核"
         mode == LiveGuideMode.Paused -> "已暂停"
         else -> "准备中"
@@ -638,7 +670,7 @@ private suspend fun loadTargetBitmap(storagePath: String): Bitmap? {
         val bytes = SupabaseManager.client.storage
             .from("nail-it-assets")
             .downloadAuthenticated(storagePath)
-        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }.getOrNull()
 }
 
@@ -648,6 +680,7 @@ private fun bindCameraPreview(
     analyzerExecutor: ExecutorService,
     onCameraProviderReady: (ProcessCameraProvider) -> Unit,
     onFrameCaptured: (Bitmap) -> Unit,
+    lensFacing: Int,
 ) {
     val cameraProviderFuture = ProcessCameraProvider.getInstance(previewView.context)
     cameraProviderFuture.addListener(
@@ -662,11 +695,11 @@ private fun bindCameraPreview(
             val analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
-                .also { imageAnalysis ->
+                .also { imageAnalysis: ImageAnalysis ->
                     imageAnalysis.setAnalyzer(analyzerExecutor) { imageProxy ->
                         val now = System.currentTimeMillis()
                         if (now - lastFrameAt >= 900) {
-                            imageProxy.toBitmap()?.let(onFrameCaptured)
+                            imageProxy.toBitmapCompat()?.let(onFrameCaptured)
                             lastFrameAt = now
                         }
                         imageProxy.close()
@@ -676,7 +709,7 @@ private fun bindCameraPreview(
             cameraProvider.unbindAll()
             cameraProvider.bindToLifecycle(
                 lifecycleOwner,
-                CameraSelector.DEFAULT_FRONT_CAMERA,
+                CameraSelector.Builder().requireLensFacing(lensFacing).build(),
                 preview,
                 analysis,
             )
@@ -685,13 +718,13 @@ private fun bindCameraPreview(
     )
 }
 
-private fun ImageProxy.toBitmap(): Bitmap? {
+private fun ImageProxy.toBitmapCompat(): Bitmap? {
     val nv21 = yuv420888ToNv21(this)
     val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
     val output = ByteArrayOutputStream()
     yuvImage.compressToJpeg(Rect(0, 0, width, height), 80, output)
     val bytes = output.toByteArray()
-    val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
     val rotationDegrees = imageInfo.rotationDegrees
     if (rotationDegrees == 0) return bitmap
 

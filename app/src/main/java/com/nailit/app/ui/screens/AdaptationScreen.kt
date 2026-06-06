@@ -66,8 +66,10 @@ import com.nailit.app.core.preview.HandPhotoRuntime
 import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.core.preview.NailSessionSnapshot
 import com.nailit.app.core.preview.SupabaseFunctionRepository
+import com.nailit.app.core.model.NailPositionHint
 import io.github.jan.supabase.storage.storage
 import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val TryOnBg = Color(0xFFF7F2ED)
@@ -101,9 +103,9 @@ fun AdaptationScreen(
     }
 
     fun startTryOn(bitmapOverride: Bitmap? = handBitmap) {
-        val session = NailSessionRuntime.current ?: activeSession
+        val initialSession = NailSessionRuntime.current ?: activeSession
         val bitmap = bitmapOverride
-        if (session == null) {
+        if (initialSession == null) {
             statusText = "没有活跃会话，请返回首页重新开始。"
             return
         }
@@ -116,9 +118,28 @@ fun AdaptationScreen(
             isRendering = true
             remoteTryOnBitmap = null
             debugErrorText = null
-            statusText = "正在生成试戴图。"
+            statusText = "正在准备试戴。"
 
             runCatching {
+                var session = NailSessionRuntime.current ?: initialSession
+                if (session.sessionId.startsWith("local-")) {
+                    statusText = "正在同步会话..."
+                    repeat(25) {
+                        delay(200)
+                        val refreshed = NailSessionRuntime.current
+                        if (refreshed != null && !refreshed.sessionId.startsWith("local-")) {
+                            session = refreshed
+                            return@repeat
+                        }
+                    }
+                    session = NailSessionRuntime.current ?: session
+                }
+                if (session.sessionId.startsWith("local-")) {
+                    error("TRYON_SESSION_NOT_READY: 远端会话还没创建完成")
+                }
+
+                statusText = "正在生成试戴图。"
+
                 NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
                     tryOnStatus = "try_on_pending",
                     tryOnError = null,
@@ -144,7 +165,10 @@ fun AdaptationScreen(
                     storagePath = uploadPath,
                 )
 
-                val tryOn = repository.createTryOn(session.sessionId)
+                val tryOn = repository.createTryOn(
+                    sessionId = session.sessionId,
+                    nailPositionHints = estimateNailPositionHints(bitmap),
+                )
                 repository.fetchTryOnResult(session.sessionId)
                 val tryOnPath = repository.fetchTryOnImagePath(session.sessionId)
                 val tryOnBitmap = tryOnPath?.let { loadRemoteBitmap(it) }
@@ -167,7 +191,7 @@ fun AdaptationScreen(
                 }
             }.onFailure { error ->
                 val rawError = error.message ?: error::class.java.simpleName
-                NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
+                NailSessionRuntime.current = (NailSessionRuntime.current ?: initialSession).copy(
                     tryOnStatus = "failed",
                     tryOnError = rawError,
                 )
@@ -525,6 +549,27 @@ private fun bitmapToJpegBytes(bitmap: Bitmap): ByteArray {
     val output = ByteArrayOutputStream()
     bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)
     return output.toByteArray()
+}
+
+private fun estimateNailPositionHints(bitmap: Bitmap): List<NailPositionHint> {
+    val width = bitmap.width.toFloat().coerceAtLeast(1f)
+    val height = bitmap.height.toFloat().coerceAtLeast(1f)
+
+    return listOf(
+        NailPositionHint("index", 0.22f, 0.34f, 0.08f, 0.13f, -32f),
+        NailPositionHint("middle", 0.43f, 0.29f, 0.085f, 0.14f, -14f),
+        NailPositionHint("ring", 0.63f, 0.34f, 0.08f, 0.13f, 6f),
+        NailPositionHint("pinky", 0.82f, 0.49f, 0.065f, 0.11f, 18f),
+        NailPositionHint("thumb", 0.12f, 0.56f, 0.10f, 0.15f, -48f),
+    ).map {
+        it.copy(
+            center_x = (it.center_x * width) / width,
+            center_y = (it.center_y * height) / height,
+            width_ratio = it.width_ratio,
+            height_ratio = it.height_ratio,
+            angle_deg = it.angle_deg,
+        )
+    }
 }
 
 private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {

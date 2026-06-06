@@ -63,6 +63,14 @@ export interface ConfirmAssetUploadResponse {
 
 export interface CreateTryOnRequest {
   session_id: string;
+  nail_position_hints?: Array<{
+    finger: string;
+    center_x: number;
+    center_y: number;
+    width_ratio: number;
+    height_ratio: number;
+    angle_deg: number;
+  }>;
 }
 
 export interface CreateTryOnResponse {

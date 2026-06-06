@@ -12,11 +12,16 @@ export async function createJsonResponse<T>({
   user,
   jsonSchema,
   model = DEFAULT_MODEL,
+  imageInputs = [],
 }: {
   system: string;
   user: string;
   jsonSchema: Record<string, unknown>;
   model?: string;
+  imageInputs?: Array<{
+    imageBase64: string;
+    mimeType?: string;
+  }>;
 }): Promise<T> {
   if (!hasOpenAiConfig()) {
     throw new Error("Missing OPENAI_API_KEY");
@@ -30,7 +35,16 @@ export async function createJsonResponse<T>({
         model,
         input: [
           { role: "system", content: [{ type: "input_text", text: system }] },
-          { role: "user", content: [{ type: "input_text", text: user }] }
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: user },
+              ...imageInputs.map((image) => ({
+                type: "input_image",
+                image_url: toDataUrl(image.imageBase64, image.mimeType),
+              })),
+            ],
+          },
         ],
         text: {
           format: {
@@ -45,7 +59,18 @@ export async function createJsonResponse<T>({
         model,
         messages: [
           { role: "system", content: system },
-          { role: "user", content: user }
+          {
+            role: "user",
+            content: [
+              { type: "text", text: user },
+              ...imageInputs.map((image) => ({
+                type: "image_url",
+                image_url: {
+                  url: toDataUrl(image.imageBase64, image.mimeType),
+                },
+              })),
+            ],
+          }
         ],
         response_format: {
           type: "json_object"
@@ -89,6 +114,7 @@ export async function createImageEdit({
   fileName = "hand-photo.jpg",
   model = IMAGE_MODEL,
   size = "1024x1024",
+  imageInputs,
 }: {
   prompt: string;
   imageBase64: string;
@@ -96,6 +122,11 @@ export async function createImageEdit({
   fileName?: string;
   model?: string;
   size?: "1024x1024" | "1024x1536" | "1536x1024" | "auto";
+  imageInputs?: Array<{
+    imageBase64: string;
+    mimeType?: string;
+    fileName?: string;
+  }>;
 }): Promise<string> {
   if (!hasOpenAiConfig()) {
     throw new Error("Missing OPENAI_API_KEY");
@@ -114,6 +145,7 @@ export async function createImageEdit({
       fileName,
       model,
       size,
+      imageInputs,
     }),
   });
 
@@ -137,6 +169,7 @@ function createImageEditFormData({
   fileName,
   model,
   size,
+  imageInputs,
 }: {
   prompt: string;
   imageBase64: string;
@@ -144,19 +177,39 @@ function createImageEditFormData({
   fileName: string;
   model: string;
   size: string;
+  imageInputs?: Array<{
+    imageBase64: string;
+    mimeType?: string;
+    fileName?: string;
+  }>;
 }) {
   const form = new FormData();
   form.set("model", model);
   form.set("prompt", prompt);
   form.set("size", size);
-  form.set(
-    "image",
-    new Blob([Uint8Array.from(atob(imageBase64), (char) => char.charCodeAt(0))], {
-      type: mimeType,
-    }),
-    fileName,
+
+  const inputs = imageInputs?.takeIf { it.isNotEmpty() } ?: listOf(
+    {
+      imageBase64: imageBase64,
+      mimeType: mimeType,
+      fileName: fileName,
+    }
   );
+
+  inputs.forEachIndexed { index, image ->
+    form.append(
+      if (inputs.size > 1) "image[]" else "image",
+      new Blob([Uint8Array.from(atob(image.imageBase64), (char) => char.charCodeAt(0))], {
+        type: image.mimeType ?? "image/jpeg",
+      }),
+      image.fileName ?? "image-${index + 1}.jpg",
+    );
+  }
   return form;
+}
+
+function toDataUrl(imageBase64: string, mimeType = "image/jpeg") {
+  return `data:${mimeType};base64,${imageBase64}`;
 }
 
 function extractOutputText(payload: Record<string, unknown>): string {

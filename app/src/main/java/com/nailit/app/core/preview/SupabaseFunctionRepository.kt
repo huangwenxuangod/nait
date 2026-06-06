@@ -6,6 +6,7 @@ import com.nailit.app.core.model.ConfirmAssetUploadResponse
 import com.nailit.app.core.model.CreateRealtimeTokenResponse
 import com.nailit.app.core.model.CreateSessionRequest
 import com.nailit.app.core.model.CreateSessionResponse
+import com.nailit.app.core.model.NailPositionHint
 import com.nailit.app.core.model.CreateTryOnRequest
 import com.nailit.app.core.model.CreateTryOnResponse
 import com.nailit.app.core.model.ExecutionPackageResponse
@@ -144,7 +145,10 @@ class SupabaseFunctionRepository {
         )
     }
 
-    suspend fun createTryOn(sessionId: String): CreateTryOnResponse {
+    suspend fun createTryOn(
+        sessionId: String,
+        nailPositionHints: List<NailPositionHint> = emptyList(),
+    ): CreateTryOnResponse {
         if (!isConfigured()) {
             return CreateTryOnResponse(
                 session_id = sessionId,
@@ -154,7 +158,10 @@ class SupabaseFunctionRepository {
 
         return safePost(
             functionName = "create_try_on",
-            requestBody = CreateTryOnRequest(session_id = sessionId)
+            requestBody = CreateTryOnRequest(
+                session_id = sessionId,
+                nail_position_hints = nailPositionHints,
+            )
         )
     }
 
