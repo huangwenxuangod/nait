@@ -3,8 +3,10 @@ import { useState } from "react";
 import { PhoneFrame } from "./PhoneFrame";
 import tryOnImg from "@/assets/nail-tryon.jpg";
 
-export function TryOnScreen({ onBack, onConfirm }: { onBack: () => void; onConfirm: () => void }) {
+export function TryOnScreen({ handImage, onBack, onConfirm }: { handImage?: string | null; onBack: () => void; onConfirm: () => void }) {
   const [comparing, setComparing] = useState(false);
+  void handImage;
+
 
   return (
     <PhoneFrame>
