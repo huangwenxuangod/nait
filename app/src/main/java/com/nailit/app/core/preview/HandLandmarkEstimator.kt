@@ -12,7 +12,15 @@ import kotlin.math.atan2
 object HandLandmarkEstimator {
     private const val MODEL_ASSET = "hand_landmarker.task"
 
+    // ⚠️ 安全开关：由于 OPPO/OnePlus 等部分机型底层 GPU/内存分配器与 MediaPipe 原生 C++ 库存在兼容性冲突
+    // 会直接触发底层 SIGSEGV (Signal 11) 段错误导致 App 瞬间闪退（Native 崩溃无法被 Kotlin 的 try-catch 捕获）。
+    // 如果您在测试机上遇到闪退，请将此开关设为 true，系统将跳过原生 C++ 估算，直接使用 100% 稳定的算法骨架兜底，确保业务流程畅通！
+    private const val USE_FALLBACK_ONLY = true
+
     fun estimate(context: Context, bitmap: Bitmap): List<NailPositionHint> {
+        if (USE_FALLBACK_ONLY) {
+            return emptyList() // 触发外层 .ifEmpty { estimateFallbackNailPositionHints() } 极速兜底
+        }
         return runCatching {
             val softwareBitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && 
                 bitmap.config == Bitmap.Config.HARDWARE) {

@@ -43,6 +43,10 @@ android {
         }
     }
 
+    androidResources {
+        noCompress.add("task")
+    }
+
     signingConfigs {
         create("release") {
             storeFile = file("../nailit.keystore")
