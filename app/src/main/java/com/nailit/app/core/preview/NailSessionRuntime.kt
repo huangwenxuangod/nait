@@ -3,6 +3,8 @@ package com.nailit.app.core.preview
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.nailit.app.core.model.ExecutionStep
+import kotlinx.serialization.json.JsonObject
 
 data class NailSessionSnapshot(
     val sessionId: String,
@@ -15,6 +17,15 @@ data class NailSessionSnapshot(
     val handPhotoUrl: String? = null,
     val tryOnStatus: String? = null,
     val executionStatus: String? = null,
+    val currentStepIndex: Int = 0,
+    val currentStepTitle: String? = null,
+    val estimatedTotalMinutes: Int = 0,
+    val targetImagePath: String? = null,
+    val executionSteps: List<ExecutionStep> = emptyList(),
+    // AI Parsed Cache
+    val sourceParseJson: JsonObject? = null,
+    val bomJson: JsonObject? = null,
+    val sopJson: JsonObject? = null,
 )
 
 object NailSessionRuntime {

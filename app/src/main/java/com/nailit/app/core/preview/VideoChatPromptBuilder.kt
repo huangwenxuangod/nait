@@ -6,6 +6,12 @@ import com.nailit.app.core.model.OpenAiMessage
 import com.nailit.app.core.model.OpenAiTextPart
 import com.nailit.app.core.model.VideoChatMessage
 import com.nailit.app.core.model.VideoChatRole
+import com.nailit.app.core.preview.NailSessionRuntime
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 
 object VideoChatPromptBuilder {
     fun buildMessages(
@@ -25,10 +31,12 @@ object VideoChatPromptBuilder {
             5. 回复要像实时视频聊天，不要写成长文。
         """.trimIndent()
 
+        val runtimeContext = buildRuntimeContext()
+
         val messages = mutableListOf(
             OpenAiMessage(
                 role = "system",
-                content = listOf(OpenAiTextPart(text = systemText))
+                content = listOf(OpenAiTextPart(text = "$systemText\n\n$runtimeContext"))
             )
         )
 
@@ -53,5 +61,65 @@ object VideoChatPromptBuilder {
         )
 
         return messages
+    }
+
+    private fun buildRuntimeContext(): String {
+        val session = NailSessionRuntime.current
+        if (session == null) {
+            return "当前没有活跃 session。优先引导用户发教程链接或拍手图。"
+        }
+
+        val parseSummary = buildParseSummary(session.sourceParseJson)
+        val bomSummary = buildListSummary(session.bomJson, "basic_tools")
+        val stepSummary = buildSopSummary(session.sopJson)
+
+        return buildString {
+            appendLine("当前项目上下文：")
+            appendLine("- session_id=${session.sessionId}")
+            appendLine("- source_type=${session.sourceType}")
+            appendLine("- source_url=${session.sourceUrl}")
+            appendLine("- status=${session.status}")
+            appendLine("- current_step_index=${session.currentStepIndex}")
+            appendLine("- current_step_title=${session.currentStepTitle ?: "none"}")
+            if (parseSummary.isNotBlank()) {
+                appendLine("- parse_summary=$parseSummary")
+            }
+            if (bomSummary.isNotBlank()) {
+                appendLine("- bom_summary=$bomSummary")
+            }
+            if (stepSummary.isNotBlank()) {
+                appendLine("- sop_summary=$stepSummary")
+            }
+        }.trim()
+    }
+
+    private fun buildParseSummary(parse: JsonObject?): String {
+        if (parse == null) return ""
+        val styleName = (parse["style_name"] as? JsonPrimitive)?.contentOrNull ?: return ""
+        val tags = (parse["style_tags"]?.jsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: emptyList()
+        return buildString {
+            append(styleName)
+            if (tags.isNotEmpty()) {
+                append(" / ")
+                append(tags.joinToString(","))
+            }
+        }
+    }
+
+    private fun buildListSummary(json: JsonObject?, key: String): String {
+        if (json == null) return ""
+        val values = json[key]?.jsonArray?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: emptyList()
+        return values.joinToString(",")
+    }
+
+    private fun buildSopSummary(sop: JsonObject?): String {
+        if (sop == null) return ""
+        val steps = sop["steps"]?.jsonArray?.take(3)?.mapNotNull { item ->
+            val step = item.jsonObject
+            val index = (step["index"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            val title = (step["title"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            "$index:$title"
+        } ?: emptyList()
+        return steps.joinToString(" | ")
     }
 }

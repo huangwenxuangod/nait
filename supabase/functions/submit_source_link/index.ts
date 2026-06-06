@@ -1,6 +1,6 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { getAdminClient } from "../_shared/client.ts";
-import { createJsonResponse, hasOpenAiConfig } from "../_shared/openai.ts";
+import { createQwenJsonResponse, hasQwenConfig } from "../_shared/qwen.ts";
 import type {
   SubmitSourceLinkRequest,
   SubmitSourceLinkResponse,
@@ -48,50 +48,22 @@ Deno.serve(async (req) => {
       throw error ?? new Error("Failed to submit source link");
     }
 
-    const mockParse = hasOpenAiConfig()
-      ? await createJsonResponse<SourceParsePayload>({
+    const mockParse = hasQwenConfig()
+      ? await createQwenJsonResponse<SourceParsePayload>({
         system:
-          "You are a nail tutorial parser. Infer the likely nail style, technique, steps, timers, and materials from a short video link or preset identifier. Return concise Chinese text in JSON only.",
-        user: `Source URL or preset: ${body.source_url}`,
-        jsonSchema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            style_name: { type: "string" },
-            style_tags: { type: "array", items: { type: "string" } },
-            visual_elements: { type: "array", items: { type: "string" } },
-            techniques: { type: "array", items: { type: "string" } },
-            total_steps: { type: "integer" },
-            materials_hint: { type: "array", items: { type: "string" } },
-            steps: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  index: { type: "integer" },
-                  title: { type: "string" },
-                  instruction: { type: "string" },
-                  timer_seconds: { type: "integer" },
-                },
-                required: ["index", "title", "instruction", "timer_seconds"],
-              },
-            },
-            source_url: { type: "string" },
-            note: { type: "string" },
-          },
-          required: [
-            "style_name",
-            "style_tags",
-            "visual_elements",
-            "techniques",
-            "total_steps",
-            "materials_hint",
-            "steps",
-            "source_url",
-            "note",
-          ],
-        },
+          "你是一个美甲教程解析器。根据短视频链接或预设标识，推断可能的美甲风格、视觉元素、关键工艺、步骤、计时和材料。只返回严格 JSON，不要解释。",
+        user: `请解析这个来源并输出 JSON：${body.source_url}`,
+        requiredKeys: [
+          "style_name",
+          "style_tags",
+          "visual_elements",
+          "techniques",
+          "total_steps",
+          "materials_hint",
+          "steps",
+          "source_url",
+          "note",
+        ],
       })
       : {
         style_name: "极光冰透猫眼",
@@ -112,7 +84,7 @@ Deno.serve(async (req) => {
 
     await supabase.from("source_parses").upsert({
       session_id: body.session_id,
-      model: hasOpenAiConfig() ? "gpt-4.1-mini" : "fallback",
+      model: hasQwenConfig() ? "qwen3.6-plus" : "fallback",
       version: "v1",
       parse_json: mockParse,
     });
@@ -132,8 +104,14 @@ Deno.serve(async (req) => {
 
     return jsonResponse(response);
   } catch (error) {
+    console.error("Function error:", error);
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error
+        ? (error as any).message
+        : JSON.stringify(error);
     return jsonResponse(
-      { error: error instanceof Error ? error.message : "Unknown error" },
+      { error: message },
       { status: 500 },
     );
   }

@@ -8,6 +8,7 @@ import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.storage
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.realtime.realtime
+import io.ktor.http.ContentType
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -43,12 +44,15 @@ object SupabaseManager {
             val bucket = client.storage.from(bucketName)
             bucket.upload(storagePath, photoBytes) {
                 upsert = true
+                contentType = ContentType.Image.JPEG
             }
             bucket.publicUrl(storagePath)
         } catch (e: Exception) {
             e.printStackTrace()
-            // 兜底返回模拟 URL
-            "https://unegfymwpzicriyjhukl.supabase.co/storage/v1/object/public/$bucketName/$storagePath"
+            throw IllegalStateException(
+                "上传手图到 Supabase Storage 失败，请检查 bucket、RLS 和网络配置。path=$storagePath",
+                e
+            )
         }
     }
 

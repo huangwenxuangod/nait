@@ -78,3 +78,10 @@ export interface GenerateExecutionPackageResponse {
   session_id: string;
   status: SessionStatus;
 }
+
+export interface CreateRealtimeTokenResponse {
+  token: string;
+  expires_at?: string | null;
+  websocket_url: string;
+  model: string;
+}

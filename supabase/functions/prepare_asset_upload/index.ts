@@ -57,8 +57,14 @@ Deno.serve(async (req) => {
 
     return jsonResponse(response);
   } catch (error) {
+    console.error("Function error:", error);
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error
+        ? (error as any).message
+        : JSON.stringify(error);
     return jsonResponse(
-      { error: error instanceof Error ? error.message : "Unknown error" },
+      { error: message },
       { status: 500 },
     );
   }

@@ -8,33 +8,54 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,8 +65,16 @@ import com.nailit.app.core.preview.HandPhotoRuntime
 import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.core.preview.NailSessionSnapshot
 import com.nailit.app.core.preview.SupabaseFunctionRepository
+import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
+
+private val TryOnBg = Color(0xFFF7F2ED)
+private val TryOnCard = Color(0xFFFFFEFC)
+private val TryOnBorder = Color(0xFFE8DDD2)
+private val TryOnText = Color(0xFF171311)
+private val TryOnMuted = Color(0xFF80756D)
+private val TryOnAccent = Color(0xFF281B19)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,18 +87,16 @@ fun AdaptationScreen(
     val context = LocalContext.current
     val repository = remember { SupabaseFunctionRepository() }
     val scope = rememberCoroutineScope()
+    val activeSession = NailSessionRuntime.current ?: sessionSnapshot
+
     var handBitmap by remember { mutableStateOf(HandPhotoRuntime.currentBitmap) }
-    var hasHandPhoto by remember { mutableStateOf(handBitmap != null) }
-    var showTryOnResult by remember { mutableStateOf(false) }
-    var isGeneratingTryOn by remember { mutableStateOf(false) }
-    var statusText by remember { mutableStateOf<String?>(null) }
-
-    val scrollState = rememberScrollState()
-
-    val title = when (selectedId) {
-        "aurora-cat" -> "极光冰透猫眼"
-        "french-soft" -> "法式温柔渐变"
-        else -> "复古红酒排钻"
+    var remoteTryOnBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var isRendering by remember { mutableStateOf(false) }
+    var isPreparingGuide by remember { mutableStateOf(false) }
+    var statusText by remember {
+        mutableStateOf(
+            if (handBitmap == null) "先拍一张手图，生成试戴结果。" else "手图已就绪，开始试戴。"
+        )
     }
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
@@ -80,8 +107,8 @@ fun AdaptationScreen(
             if (bitmap != null) {
                 handBitmap = bitmap
                 HandPhotoRuntime.currentBitmap = bitmap
-                hasHandPhoto = true
-                statusText = "已选择真实手部照片，可以上传试戴。"
+                remoteTryOnBitmap = null
+                statusText = "手图已更新，重新生成试戴即可。"
             } else {
                 statusText = "图片读取失败，请重新选择。"
             }
@@ -94,8 +121,8 @@ fun AdaptationScreen(
         if (bitmap != null) {
             handBitmap = bitmap
             HandPhotoRuntime.currentBitmap = bitmap
-            hasHandPhoto = true
-            statusText = "真实拍照已完成，可以上传试戴。"
+            remoteTryOnBitmap = null
+            statusText = "真实拍照已完成，重新生成试戴即可。"
         } else {
             statusText = "未拍到照片，请再试一次。"
         }
@@ -107,8 +134,115 @@ fun AdaptationScreen(
         if (granted) {
             takePicturePreviewLauncher.launch(null)
         } else {
-            statusText = "没有相机权限，已切换为相册导入。"
             pickMediaLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        }
+    }
+
+    fun retryCapture() {
+        val hasCameraPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasCameraPermission) {
+            takePicturePreviewLauncher.launch(null)
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    fun renderTryOn() {
+        val session = activeSession
+        val bitmap = handBitmap
+        if (session == null) {
+            statusText = "没有活跃会话，请返回首页重新开始。"
+            return
+        }
+        if (bitmap == null) {
+            statusText = "请先拍摄或上传手图。"
+            return
+        }
+
+        scope.launch {
+            isRendering = true
+            statusText = "正在生成试戴图..."
+            runCatching {
+                val upload = repository.prepareAssetUpload(
+                    sessionId = session.sessionId,
+                    assetType = "hand_photo",
+                    mimeType = "image/jpeg",
+                )
+                val uploadPath = upload.storage_path ?: error("prepareAssetUpload missing storage_path")
+                val uploadAssetId = upload.asset_id ?: error("prepareAssetUpload missing asset_id")
+                val publicUrl = SupabaseManager.uploadHandPhotoToPath(
+                    photoBytes = bitmapToJpegBytes(bitmap),
+                    storagePath = uploadPath,
+                )
+                repository.confirmAssetUpload(
+                    sessionId = session.sessionId,
+                    assetId = uploadAssetId,
+                    assetType = "hand_photo",
+                    storagePath = uploadPath,
+                )
+                val tryOn = repository.createTryOn(session.sessionId)
+                val tryOnResult = repository.fetchTryOnResult(session.sessionId)
+                val tryOnPath = repository.fetchTryOnImagePath(session.sessionId)
+                val tryOnBitmap = tryOnPath?.let { loadRemoteBitmap(it) }
+
+                NailSessionRuntime.current = session.copy(
+                    status = tryOn.status ?: "try_on_ready",
+                    handAssetId = uploadAssetId,
+                    handStoragePath = uploadPath,
+                    handPhotoUrl = publicUrl,
+                    tryOnStatus = tryOn.status,
+                    targetImagePath = tryOnPath,
+                )
+                Pair(tryOnResult, tryOnBitmap)
+            }.onSuccess { payload ->
+                remoteTryOnBitmap = payload.second
+                statusText = if (payload.second != null) {
+                    "试戴结果已生成，下一步进入视频带做。"
+                } else {
+                    "试戴分析已生成，但结果图暂时没读到。"
+                }
+            }.onFailure { error ->
+                val detail = error.message ?: "未知错误"
+                statusText = if (detail.contains("Object not found", ignoreCase = true)) {
+                    "试戴失败：手图没有真正上传到 Supabase Storage。请重试上传，并检查 bucket / RLS 配置。"
+                } else {
+                    "试戴生成失败：$detail"
+                }
+            }
+            isRendering = false
+        }
+    }
+
+    fun prepareGuide() {
+        val session = NailSessionRuntime.current ?: activeSession
+        if (session == null) {
+            statusText = "没有活跃会话，请返回首页重新开始。"
+            return
+        }
+
+        scope.launch {
+            isPreparingGuide = true
+            statusText = "正在生成视频带做流程..."
+            runCatching {
+                repository.generateExecutionPackage(session.sessionId)
+                repository.fetchExecutionPackage(session.sessionId)
+            }.onSuccess { executionPackage ->
+                NailSessionRuntime.current = session.copy(
+                    executionStatus = "guide_ready",
+                    estimatedTotalMinutes = executionPackage?.estimated_total_minutes ?: session.estimatedTotalMinutes,
+                    currentStepIndex = 0,
+                    currentStepTitle = executionPackage?.steps?.firstOrNull()?.title,
+                    executionSteps = executionPackage?.steps ?: session.executionSteps,
+                )
+                statusText = "流程已就绪，进入视频带做。"
+                onContinue()
+            }.onFailure { error ->
+                statusText = "流程生成失败：${error.message ?: "未知错误"}"
+            }
+            isPreparingGuide = false
         }
     }
 
@@ -117,478 +251,205 @@ fun AdaptationScreen(
             TopAppBar(
                 title = {
                     Text(
-                        if (showTryOnResult) "AI 美甲试戴效果" else "手部条件采集",
-                        style = MaterialTheme.typography.titleMedium.copy(
+                        text = "AI 试戴",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            color = TryOnText,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp
                         )
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        if (showTryOnResult) {
-                            showTryOnResult = false
-                        } else {
-                            onBack()
-                        }
-                    }) {
-                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back")
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = TryOnText,
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    containerColor = TryOnBg,
                 )
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = TryOnBg,
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(24.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 20.dp, vertical = 18.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Column(
+            CompareCard(
+                title = "原图",
+                subtitle = "你的手图",
+                bitmap = handBitmap,
+                emptyText = "还没有手图",
+            )
+
+            CompareCard(
+                title = "试戴图",
+                subtitle = "AI 渲染结果",
+                bitmap = remoteTryOnBitmap,
+                emptyText = if (isRendering) "正在生成..." else "点击下方按钮开始试戴",
+            )
+
+            Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(TryOnCard)
+                    .border(1.dp, TryOnBorder, RoundedCornerShape(18.dp))
+                    .padding(16.dp)
             ) {
-                if (!showTryOnResult) {
-                    // Hand Capture Mode
-                    Text(
-                        "扫描您的手部照片",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                        )
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = TryOnMuted,
+                        lineHeight = 22.sp,
                     )
+                )
+            }
 
-                    // Hand Camera Box
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1.2f)
-                            .clickable {
-                                if (!hasHandPhoto) {
-                                    val hasCameraPermission = ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.CAMERA
-                                    ) == PackageManager.PERMISSION_GRANTED
-                                    if (hasCameraPermission) {
-                                        takePicturePreviewLauncher.launch(null)
-                                    } else {
-                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                    }
-                                }
-                            },
-                        shape = RoundedCornerShape(0.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = BorderStroke(1.dp, Color(0xFFE9D8D0))
-                    ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (hasHandPhoto && handBitmap != null) {
-                                // Draw Hand Skeleton & Nail boxes
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    Image(
-                                        modifier = Modifier
-                                            .fillMaxSize(),
-                                        bitmap = handBitmap!!.asImageBitmap(),
-                                        contentDescription = "Captured hand photo",
-                                    )
-
-                                    // Skeleton Canvas
-                                    Canvas(modifier = Modifier.fillMaxSize()) {
-                                        val color = Color(0xFFC5A880)
-                                        val strokeWidth = 1.5.dp.toPx()
-
-                                        // Draw 5 nail landmark rectangles
-                                        val nails = listOf(
-                                            Offset(size.width * 0.2f, size.height * 0.4f), // Thumb
-                                            Offset(size.width * 0.35f, size.height * 0.25f), // Index
-                                            Offset(size.width * 0.5f, size.height * 0.2f), // Middle
-                                            Offset(size.width * 0.65f, size.height * 0.28f), // Ring
-                                            Offset(size.width * 0.8f, size.height * 0.42f) // Pinky
-                                        )
-
-                                        nails.forEach { nail ->
-                                            drawRect(
-                                                color = color,
-                                                topLeft = Offset(nail.x - 12.dp.toPx(), nail.y - 18.dp.toPx()),
-                                                size = Size(24.dp.toPx(), 36.dp.toPx()),
-                                                style = Stroke(width = strokeWidth)
-                                            )
-                                            drawCircle(
-                                                color = Color(0xFF881337),
-                                                radius = 3.dp.toPx(),
-                                                center = nail
-                                            )
-                                        }
-
-                                        // Draw skeleton lines connecting joints
-                                        val joints = listOf(
-                                            Offset(size.width * 0.5f, size.height * 0.8f), // Wrist
-                                            Offset(size.width * 0.5f, size.height * 0.5f) // Palm center
-                                        )
-                                        drawLine(
-                                            color = color.copy(alpha = 0.5f),
-                                            start = joints[0],
-                                            end = joints[1],
-                                            strokeWidth = strokeWidth
-                                        )
-                                    }
-                                }
-                            } else {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Star,
-                                        contentDescription = "Camera",
-                                        tint = Color(0xFFC5A880),
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                    Text(
-                                        "点击真实拍照",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    )
-                                    Text(
-                                        "请将手背平放于镜头前。拒绝权限时会自动转相册导入。",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (hasHandPhoto) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(0.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFAF8F5)),
-                            border = BorderStroke(1.dp, Color(0xFFE9D8D0).copy(alpha = 0.8f))
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    "手部条件分析报告",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFC5A880),
-                                        letterSpacing = 1.sp
-                                    )
-                                )
-                                Text(
-                                    "• 肤色诊断：暖黄皮 2.5 度 (适合暖调猫眼)\n" +
-                                    "• 甲床诊断：偏短偏宽甲床 (建议椭圆甲型修饰)\n" +
-                                    "• 手部骨骼：骨节匀称，适合透亮光感美甲",
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        lineHeight = 18.sp,
-                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    statusText?.let { text ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(0.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF7ED)),
-                            border = BorderStroke(1.dp, Color(0xFFF5CBA7))
-                        ) {
-                            Text(
-                                text,
-                                modifier = Modifier.padding(14.dp),
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = Color(0xFF9A3412),
-                                    lineHeight = 18.sp
-                                )
+            if (remoteTryOnBitmap == null) {
+                Button(
+                    onClick = {
+                        if (handBitmap == null) retryCapture() else renderTryOn()
+                    },
+                    enabled = !isRendering,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TryOnAccent,
+                        contentColor = Color.White,
+                    )
+                ) {
+                    if (isRendering) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White,
+                        )
+                    } else {
+                        Text(
+                            text = if (handBitmap == null) "拍手并开始试戴" else "开始试戴",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 1.sp,
                             )
-                        }
+                        )
+                    }
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = {
+                            remoteTryOnBitmap = null
+                            retryCapture()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(54.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = TryOnAccent,
+                        )
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Text("重试")
                     }
 
-                    if (isGeneratingTryOn) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
+                    Button(
+                        onClick = { prepareGuide() },
+                        enabled = !isPreparingGuide,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(54.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = TryOnAccent,
+                            contentColor = Color.White,
+                        )
+                    ) {
+                        if (isPreparingGuide) {
                             CircularProgressIndicator(
-                                color = Color(0xFF881337),
+                                modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp,
-                                modifier = Modifier.size(32.dp)
+                                color = Color.White,
                             )
+                        } else {
                             Text(
-                                "正在融合款式与光影...",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF881337),
-                                    letterSpacing = 1.sp
+                                text = "开始视频带做",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
                                 )
                             )
-                        }
-                    }
-
-                } else {
-                    // Try-On Result Mode
-                    Text(
-                        "AI 试戴效果预览",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                        )
-                    )
-
-                    // Try On Rendering Card
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1.2f),
-                        shape = RoundedCornerShape(0.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = BorderStroke(1.dp, Color(0xFFE9D8D0))
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            // Simulated rendering background
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0xFFFAF8F5)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "AI 极光猫眼光影融合图",
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = Color.Gray
-                                    )
-                                )
-                            }
-
-                            // Rendered nails on canvas
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                val nails = listOf(
-                                    Offset(size.width * 0.2f, size.height * 0.4f),
-                                    Offset(size.width * 0.35f, size.height * 0.25f),
-                                    Offset(size.width * 0.5f, size.height * 0.2f),
-                                    Offset(size.width * 0.65f, size.height * 0.28f),
-                                    Offset(size.width * 0.8f, size.height * 0.42f)
-                                )
-
-                                nails.forEach { nail ->
-                                    // Draw beautifully rendered styled nail (Solid pink with gold glitter glow)
-                                    drawRoundRect(
-                                        color = Color(0xFFFDA4AF), // Ice pink base
-                                        topLeft = Offset(nail.x - 12.dp.toPx(), nail.y - 18.dp.toPx()),
-                                        size = Size(24.dp.toPx(), 36.dp.toPx()),
-                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(10.dp.toPx(), 10.dp.toPx())
-                                    )
-                                    // Draw cat eye magnetic light line (Diagonal gold glow line)
-                                    drawLine(
-                                        color = Color(0xFFFEF08A).copy(alpha = 0.8f),
-                                        start = Offset(nail.x - 10.dp.toPx(), nail.y + 10.dp.toPx()),
-                                        end = Offset(nail.x + 10.dp.toPx(), nail.y - 10.dp.toPx()),
-                                        strokeWidth = 4.dp.toPx()
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Matching Analysis Card
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(0.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = BorderStroke(1.dp, Color(0xFFE9D8D0).copy(alpha = 0.6f))
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "款式与肤色适配度",
-                                    style = MaterialTheme.typography.titleSmall.copy(
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .background(Color(0xFF881337), CircleShape)
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        "显白 1.5 度",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontSize = 8.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                    )
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        "原视频款式",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            color = Color.Gray,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    )
-                                    Text(
-                                        "方型甲床，高饱和冰透粉背景，偏冷光泽",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                                        )
-                                    )
-                                }
-
-                                Column(
-                                    modifier = Modifier.weight(1.2f),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        "AI 个性化定制版",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            color = Color(0xFF881337),
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    )
-                                    Text(
-                                        "修剪为椭圆甲型拉长视觉。调暖底色 +15% 以完美衬托您的暖黄皮。",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    )
-                                }
-                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
 
-            // Action Button
-            Button(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                onClick = {
-                    if (showTryOnResult) {
-                        scope.launch {
-                            val active = NailSessionRuntime.current ?: sessionSnapshot
-                            if (active == null) {
-                                statusText = "未找到当前 session，暂时无法生成 BOM。"
-                                return@launch
-                            }
-
-                            statusText = "正在生成执行包与 BOM 清单..."
-                            runCatching {
-                                val result = repository.generateExecutionPackage(active.sessionId)
-                                NailSessionRuntime.current = active.copy(
-                                    status = result.status,
-                                    executionStatus = result.status,
-                                )
-                            }.onSuccess {
-                                statusText = "执行包已生成，进入材料清单。"
-                                onContinue()
-                            }.onFailure { error ->
-                                statusText = "执行包生成失败：${error.message ?: "未知错误"}"
-                            }
-                        }
-                    } else {
-                        scope.launch {
-                            val active = NailSessionRuntime.current ?: sessionSnapshot
-                            if (active == null) {
-                                statusText = "未找到当前 session，请先从首页重新开始。"
-                                return@launch
-                            }
-                            if (!hasHandPhoto) {
-                                statusText = "请先拍摄或模拟捕获手部照片。"
-                                return@launch
-                            }
-
-                            isGeneratingTryOn = true
-                            statusText = "正在准备 hand photo 上传..."
-
-                            runCatching {
-                                val upload = repository.prepareAssetUpload(
-                                    sessionId = active.sessionId,
-                                    assetType = "hand_photo",
-                                    mimeType = "image/jpeg",
-                                )
-                                val publicUrl = SupabaseManager.uploadHandPhotoToPath(
-                                    photoBytes = bitmapToJpegBytes(handBitmap),
-                                    storagePath = upload.storage_path,
-                                )
-                                repository.confirmAssetUpload(
-                                    sessionId = active.sessionId,
-                                    assetId = upload.asset_id,
-                                    assetType = "hand_photo",
-                                    storagePath = upload.storage_path,
-                                )
-                                val tryOn = repository.createTryOn(active.sessionId)
-
-                                NailSessionRuntime.current = active.copy(
-                                    status = tryOn.status,
-                                    handAssetId = upload.asset_id,
-                                    handStoragePath = upload.storage_path,
-                                    handPhotoUrl = publicUrl,
-                                    tryOnStatus = tryOn.status,
-                                )
-                            }.onSuccess {
-                                statusText = "手部照片已上传并触发试戴任务。"
-                                showTryOnResult = true
-                            }.onFailure { error ->
-                                statusText = "试戴触发失败：${error.message ?: "未知错误"}"
-                            }
-
-                            isGeneratingTryOn = false
-                        }
-                    }
-                },
-                enabled = hasHandPhoto || showTryOnResult,
-                shape = RoundedCornerShape(0.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    disabledContainerColor = Color.LightGray
+@Composable
+private fun CompareCard(
+    title: String,
+    subtitle: String,
+    bitmap: Bitmap?,
+    emptyText: String,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(TryOnCard)
+            .border(1.dp, TryOnBorder, RoundedCornerShape(28.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    color = TryOnText,
+                    fontWeight = FontWeight.SemiBold,
                 )
-            ) {
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = TryOnMuted,
+                )
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1.08f)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFFF1E8E1)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
                 Text(
-                    if (showTryOnResult) "绝美！我要开始做了" else "生成 AI 虚拟试戴效果",
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp,
-                        fontSize = 15.sp
+                    text = emptyText,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = TryOnMuted,
                     )
                 )
             }
@@ -596,8 +457,16 @@ fun AdaptationScreen(
     }
 }
 
-private fun bitmapToJpegBytes(bitmap: Bitmap?): ByteArray {
-    requireNotNull(bitmap) { "Hand bitmap is required before upload." }
+private suspend fun loadRemoteBitmap(storagePath: String): Bitmap? {
+    return runCatching {
+        val bytes = SupabaseManager.client.storage
+            .from("nail-it-assets")
+            .downloadAuthenticated(storagePath)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }.getOrNull()
+}
+
+private fun bitmapToJpegBytes(bitmap: Bitmap): ByteArray {
     val output = ByteArrayOutputStream()
     bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)
     return output.toByteArray()

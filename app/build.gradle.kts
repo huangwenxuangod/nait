@@ -2,9 +2,8 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.dagger.hilt.android")
+    kotlin("plugin.serialization")
     id("com.google.devtools.ksp")
-    kotlin("kapt")
 }
 
 android {
@@ -21,6 +20,10 @@ android {
         val openAiBaseUrl = System.getenv("NAILIT_OPENAI_BASE_URL") ?: "https://api.openai.com/v1/"
         val openAiModel = System.getenv("NAILIT_OPENAI_MODEL") ?: "gpt-4.1-mini"
         val openAiApiKey = System.getenv("NAILIT_OPENAI_API_KEY") ?: ""
+        val qwenRealtimeWsUrl = System.getenv("NAILIT_QWEN_REALTIME_WS_URL")
+            ?: "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+        val qwenRealtimeModel = System.getenv("NAILIT_QWEN_REALTIME_MODEL")
+            ?: "qwen3.5-omni-plus-realtime"
         val supabaseUrl = System.getenv("NAILIT_SUPABASE_URL")
             ?: "https://unegfymwpzicriyjhukl.supabase.co"
         val supabaseAnonKey = System.getenv("NAILIT_SUPABASE_ANON_KEY")
@@ -29,6 +32,8 @@ android {
         buildConfigField("String", "OPENAI_BASE_URL", "\"$openAiBaseUrl\"")
         buildConfigField("String", "OPENAI_MODEL", "\"$openAiModel\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
+        buildConfigField("String", "QWEN_REALTIME_WS_URL", "\"$qwenRealtimeWsUrl\"")
+        buildConfigField("String", "QWEN_REALTIME_MODEL", "\"$qwenRealtimeModel\"")
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
 
@@ -38,13 +43,26 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../nailit.keystore")
+            storePassword = "nailit123"
+            keyAlias = "nailit"
+            keyPassword = "nailit123"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -88,11 +106,6 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.9.8")
-    implementation("androidx.hilt:hilt-navigation-compose:1.3.0")
-
-    implementation("com.google.dagger:hilt-android:2.57")
-    kapt("com.google.dagger:hilt-compiler:2.57")
-
     implementation("androidx.room:room-runtime:2.8.4")
     implementation("androidx.room:room-ktx:2.8.4")
     ksp("androidx.room:room-compiler:2.8.4")
@@ -112,6 +125,7 @@ dependencies {
     implementation("io.ktor:ktor-client-content-negotiation:3.2.1")
     implementation("io.ktor:ktor-client-logging:3.2.1")
     implementation("io.ktor:ktor-serialization-kotlinx-json:3.2.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     implementation("io.github.jan-tennert.supabase:postgrest-kt:3.2.4")

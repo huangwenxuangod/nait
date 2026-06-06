@@ -1,0 +1,75 @@
+name: Build Signed APK & Deploy Supabase
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build-android:
+    name: Build & Sign Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Decode Keystore
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > nailit.keystore
+            echo "Keystore successfully decoded from GitHub Secrets."
+          else
+            echo "No keystore secret found, using local fallback or generating a temporary one for build validation..."
+            if [ -f "nailit.keystore" ]; then
+              echo "Using committed or existing keystore."
+            else
+              echo "Generating fresh self-signed keystore..."
+              keytool -genkeypair -v -keystore nailit.keystore -alias nailit -keyalg RSA -keysize 2048 -validity 10000 -storepass nailit123 -keypass nailit123 -dname "CN=NailIt, OU=Dev, O=NailIt, L=Beijing, S=Beijing, C=CN"
+            fi
+          fi
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+        env:
+          NAILIT_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NAILIT_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
+      - name: Upload Signed APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nailit-signed-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
+
+  deploy-supabase:
+    name: Deploy Supabase Edge Functions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 'latest'
+
+      - name: Deploy Edge Functions
+        run: |
+          supabase functions deploy create_try_on --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+          supabase functions deploy create_qwen_temp_token --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+          supabase functions deploy generate_execution_package --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+          supabase functions deploy submit_source_link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+          supabase functions deploy prepare_asset_upload --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+          supabase functions deploy confirm_asset_upload --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

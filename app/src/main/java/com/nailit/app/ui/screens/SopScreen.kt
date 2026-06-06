@@ -13,7 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,21 +26,116 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nailit.app.core.preview.NailSessionRuntime
+import com.nailit.app.core.preview.NailSessionSnapshot
+import com.nailit.app.core.preview.SupabaseFunctionRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SopScreen(
+    sessionSnapshot: NailSessionSnapshot?,
     onBack: () -> Unit,
     onFinish: () -> Unit
 ) {
-    var currentStep by remember { mutableStateOf(2) } // Start on Step 2 for best demo experience
+    val repository = remember { SupabaseFunctionRepository() }
+    val scope = rememberCoroutineScope()
+    val runtimeSession = NailSessionRuntime.current ?: sessionSnapshot
+    
+    var isLoading by remember { mutableStateOf(runtimeSession != null && runtimeSession.sopJson == null) }
+    var currentStep by remember {
+        mutableStateOf(((runtimeSession?.currentStepIndex ?: 0) + 1).coerceAtLeast(1))
+    }
     var isTimerRunning by remember { mutableStateOf(false) }
     var timerSeconds by remember { mutableStateOf(60) }
     var showCompletionFeedback by remember { mutableStateOf(false) }
-    
-    val coroutineScope = rememberCoroutineScope()
+
+    // Load SOP logic
+    LaunchedEffect(sessionSnapshot) {
+        if (sessionSnapshot == null) {
+            isLoading = false
+            return@LaunchedEffect
+        }
+
+        if (sessionSnapshot.sopJson != null) {
+            isLoading = false
+            return@LaunchedEffect
+        }
+
+        isLoading = true
+        var fetched: JsonObject? = null
+        runCatching {
+            // Try up to 3 times to fetch (polling in case background AI is finishing up)
+            for (i in 1..3) {
+                fetched = repository.fetchSop(sessionSnapshot.sessionId)
+                if (fetched != null) break
+                delay(1000)
+            }
+        }
+
+        if (fetched != null) {
+            NailSessionRuntime.current = sessionSnapshot.copy(sopJson = fetched)
+        }
+        isLoading = false
+    }
+
+    val activeSop = sessionSnapshot?.sopJson
+    val rawSteps = activeSop?.get("steps") as? JsonArray
+
+    // Convert to structured steps
+    data class SopStep(
+        val index: Int,
+        val title: String,
+        val instruction: String,
+        val timerSeconds: Int,
+        val voiceShortcut: String
+    )
+
+    val steps = remember(rawSteps) {
+        if (rawSteps != null && rawSteps.isNotEmpty()) {
+            rawSteps.mapNotNull { item ->
+                val obj = item.jsonObject
+                val idx = (obj["index"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 1
+                val title = (obj["title"] as? JsonPrimitive)?.contentOrNull ?: "未命名步骤"
+                val instruction = (obj["instruction"] as? JsonPrimitive)?.contentOrNull ?: "暂无说明"
+                val timer = (obj["timer_seconds"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 60
+                val voice = (obj["voice_shortcut"] as? JsonPrimitive)?.contentOrNull ?: "下一步"
+                SopStep(idx, title, instruction, timer, voice)
+            }
+        } else {
+            // Fallback preset steps
+            listOf(
+                SopStep(1, "基础修甲与平衡底胶", "使用死皮推清理甲面，薄涂一层平衡液与强力底胶，确保边缘包裹完整。", 30, "下一步"),
+                SopStep(2, "极光猫眼斜吸工艺", "均匀涂上极光猫眼胶。拿起磁铁，斜放在指甲边缘 45 度角（距离指甲约 0.5 厘米），停留 5 秒钟，观察高光线向中心汇聚，吸出宽光后立刻放入烤灯固化！", 60, "下一步"),
+                SopStep(3, "涂冰透粉色背景胶两层", "薄涂冰透粉色底色胶，每层均匀照灯，形成饱满透亮的水光质感。", 60, "下一步"),
+                SopStep(4, "超亮钢化封层", "涂抹免洗钢化封层，加固耐磨，锁住晶莹猫眼光泽，边缘重点包裹。", 90, "完成")
+            )
+        }
+    }
+
+    val totalSteps = steps.size
+    val currentStepData = steps.getOrNull((currentStep - 1).coerceIn(0, totalSteps - 1))
+
+    // Sync timer initial seconds when step changes
+    LaunchedEffect(currentStep, currentStepData) {
+        isTimerRunning = false
+        timerSeconds = currentStepData?.timerSeconds ?: 60
+        val active = NailSessionRuntime.current ?: sessionSnapshot
+        if (active != null && currentStepData != null) {
+            NailSessionRuntime.current = active.copy(
+                currentStepIndex = (currentStep - 1).coerceAtLeast(0),
+                currentStepTitle = currentStepData.title,
+                sopJson = active.sopJson ?: activeSop,
+            )
+        }
+    }
 
     // Doubao Voice Orb Pulse Animation
     val infiniteTransition = rememberInfiniteTransition(label = "voice")
@@ -71,7 +165,7 @@ fun SopScreen(
             timerSeconds--
         } else if (timerSeconds == 0) {
             isTimerRunning = false
-            timerSeconds = 60
+            timerSeconds = currentStepData?.timerSeconds ?: 60
         }
     }
 
@@ -80,7 +174,7 @@ fun SopScreen(
             TopAppBar(
                 title = {
                     Text(
-                        if (showCompletionFeedback) "AI 大师级实操反馈" else "沉浸式实操 SOP (第 $currentStep/4 步)",
+                        if (showCompletionFeedback) "AI 大师级实操反馈" else "沉浸式实操 SOP (第 $currentStep/$totalSteps 步)",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 2.sp
@@ -113,8 +207,8 @@ fun SopScreen(
                 .padding(padding)
                 // Anywhere tap on screen to progress (contactless simulation when hands are wet)
                 .clickable {
-                    if (!showCompletionFeedback) {
-                        if (currentStep < 4) {
+                    if (!showCompletionFeedback && !isLoading) {
+                        if (currentStep < totalSteps) {
                             currentStep++
                         } else {
                             showCompletionFeedback = true
@@ -122,7 +216,21 @@ fun SopScreen(
                     }
                 }
         ) {
-            if (!showCompletionFeedback) {
+            if (isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color(0xFFC5A880))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "正在加载 AI 专属实操指南...",
+                            style = MaterialTheme.typography.bodyMedium.copy(color = Color.White.copy(alpha = 0.6f))
+                        )
+                    }
+                }
+            } else if (!showCompletionFeedback) {
                 // Real-time Hand-Tracking Camera View (Simulated)
                 Box(
                     modifier = Modifier
@@ -222,7 +330,7 @@ fun SopScreen(
                                 )
                             )
                             Text(
-                                "说“下一步”或轻拍屏幕翻页",
+                                "说“${currentStepData?.voiceShortcut ?: "下一步"}”或轻拍屏幕翻页",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = Color.White.copy(alpha = 0.6f),
                                     fontSize = 8.sp
@@ -293,7 +401,7 @@ fun SopScreen(
                                         modifier = Modifier.size(12.dp)
                                     )
                                     Text(
-                                        if (isTimerRunning) "倒计时 ${timerSeconds}s" else "开启 60s 烤灯",
+                                        if (isTimerRunning) "倒计时 ${timerSeconds}s" else "开启 ${currentStepData?.timerSeconds ?: 60}s 烤灯",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             color = Color.White,
                                             fontWeight = FontWeight.Bold,
@@ -322,7 +430,7 @@ fun SopScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    "步骤 $currentStep: 极光猫眼斜吸工艺",
+                                    "步骤 $currentStep: ${currentStepData?.title ?: "实操步骤"}",
                                     style = MaterialTheme.typography.labelMedium.copy(
                                         color = Color(0xFFC5A880),
                                         fontWeight = FontWeight.Bold,
@@ -335,7 +443,7 @@ fun SopScreen(
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        "核心步骤",
+                                        if (currentStep == 2) "核心步骤" else "基础工艺",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             color = Color.White,
                                             fontSize = 8.sp,
@@ -346,7 +454,7 @@ fun SopScreen(
                             }
 
                             Text(
-                                "均匀涂上极光猫眼胶。拿起磁铁，斜放在指甲边缘 45 度角（距离指甲约 0.5 厘米），停留 5 秒钟，观察高光线向中心汇聚，吸出宽光后立刻放入烤灯固化！",
+                                currentStepData?.instruction ?: "按照 AI 提取的工艺指令进行操作。",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = Color.White,
                                     lineHeight = 18.sp
@@ -369,7 +477,7 @@ fun SopScreen(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    "当前材料：极光碎钻猫眼胶 + 圆柱磁铁",
+                                    "语音口令：说“${currentStepData?.voiceShortcut ?: "下一步"}”自动翻页",
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         color = Color(0xFFC5A880),
                                         fontSize = 10.sp
@@ -431,7 +539,7 @@ fun SopScreen(
                                 )
                             )
                             Text(
-                                "恭喜！你的极光猫眼斜吸角度非常均匀，边缘封层完全包裹。我们检测到了极高水准的宽光效果！",
+                                "恭喜！你的工艺还原度极高，磁铁斜吸角度非常均匀，边缘封层完全包裹。我们检测到了高水准的宽光效果！",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = Color.White.copy(alpha = 0.7f),
                                     textAlign = TextAlign.Center,
@@ -480,7 +588,7 @@ fun SopScreen(
                                         )
                                     )
                                     Text(
-                                        "磁铁斜吸 45 度控制得极其完美，猫眼高光线明亮集中，没有散光。钢化封层涂抹均匀，边缘无缩胶起皱。",
+                                        "磁铁斜吸角度控制得极其完美，高光线明亮集中，没有散光。钢化封层涂抹均匀，边缘无缩胶起皱。",
                                         style = MaterialTheme.typography.bodySmall.copy(
                                             color = Color.White.copy(alpha = 0.9f)
                                         )
