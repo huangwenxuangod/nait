@@ -56,7 +56,7 @@ fi
 echo -e "${YELLOW}--- [步骤 2/6] 拉取并配置自建 Supabase 官方容器堆栈 ---${NC}"
 if [ ! -d "$DOCKER_DIR" ]; then
   echo -e "${YELLOW}克隆 Supabase 官方 Docker 部署包到 $DOCKER_DIR...${NC}"
-  git clone --depth 1 https://mirror.ghproxy.com/https://github.com/supabase/supabase.git "$DOCKER_DIR"
+  git clone --depth 1 https://gitclone.com/github.com/supabase/supabase.git "$DOCKER_DIR"
 else
   echo -e "${GREEN}Supabase Docker 目录已存在，正在拉取最新版本...${NC}"
   cd "$DOCKER_DIR" && git pull || true
