@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -137,8 +138,13 @@ fun ConversationScreen(
         permissionHint = if (granted) null else "请先允许相机权限。"
     }
 
+    LaunchedEffect(activeSession?.targetImagePath) {
+        if (activeSession?.targetImagePath != null) {
+            targetBitmap = loadTargetBitmap(activeSession.targetImagePath)
+        }
+    }
+
     LaunchedEffect(Unit) {
-        targetBitmap = activeSession?.targetImagePath?.let { loadTargetBitmap(it) }
         runCatching { repository.createRealtimeToken() }
             .onSuccess { tokenPayload ->
                 realtimeManager.connect(tokenPayload)
@@ -265,6 +271,34 @@ fun ConversationScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
+                }
+            } else if (activeSession?.tryOnStatus == "try_on_pending") {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .size(width = 92.dp, height = 124.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(20.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = "AI试戴中...",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
 

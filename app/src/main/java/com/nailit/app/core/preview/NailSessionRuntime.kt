@@ -4,6 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.nailit.app.core.model.ExecutionStep
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.JsonObject
 
 data class NailSessionSnapshot(
@@ -31,4 +34,5 @@ data class NailSessionSnapshot(
 
 object NailSessionRuntime {
     var current: NailSessionSnapshot? by mutableStateOf(null)
+    val backgroundScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 }

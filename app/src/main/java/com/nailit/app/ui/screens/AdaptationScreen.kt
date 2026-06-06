@@ -96,6 +96,14 @@ fun AdaptationScreen(
         )
     }
 
+    androidx.compose.runtime.LaunchedEffect(activeSession?.status) {
+        when (activeSession?.status) {
+            "booting" -> statusText = "正在后台同步这次试戴。"
+            "source_parsing" -> statusText = "正在后台解析当前款式。"
+            "bootstrap_failed" -> statusText = "初始化失败，但你仍然可以先拍手图。"
+        }
+    }
+
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -147,7 +155,37 @@ fun AdaptationScreen(
         }
     }
 
-    fun renderTryOn() {
+    fun prepareGuide() {
+        val session = NailSessionRuntime.current ?: activeSession
+        if (session == null) {
+            statusText = "没有活跃会话，请返回首页重新开始。"
+            return
+        }
+
+        scope.launch {
+            isPreparingGuide = true
+            statusText = "正在进入视频带做..."
+            runCatching {
+                repository.generateExecutionPackage(session.sessionId)
+                repository.fetchExecutionPackage(session.sessionId)
+            }.onSuccess { executionPackage ->
+                NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
+                    executionStatus = "guide_ready",
+                    estimatedTotalMinutes = executionPackage?.estimated_total_minutes ?: session.estimatedTotalMinutes,
+                    currentStepIndex = 0,
+                    currentStepTitle = executionPackage?.steps?.firstOrNull()?.title,
+                    executionSteps = executionPackage?.steps ?: session.executionSteps,
+                )
+                statusText = "流程已就绪。"
+                onContinue()
+            }.onFailure { error ->
+                statusText = "流程生成失败：${error.message ?: "未知错误"}"
+            }
+            isPreparingGuide = false
+        }
+    }
+
+    fun startAsyncTryOnAndProceed() {
         val session = activeSession
         val bitmap = handBitmap
         if (session == null) {
@@ -159,10 +197,13 @@ fun AdaptationScreen(
             return
         }
 
-        scope.launch {
-            isRendering = true
-            statusText = "正在生成试戴图..."
+        // 1. Launch Try-On in the background (survives navigation)
+        NailSessionRuntime.backgroundScope.launch {
             runCatching {
+                NailSessionRuntime.current = NailSessionRuntime.current?.copy(
+                    tryOnStatus = "try_on_pending"
+                ) ?: session.copy(tryOnStatus = "try_on_pending")
+
                 val upload = repository.prepareAssetUpload(
                     sessionId = session.sessionId,
                     assetType = "hand_photo",
@@ -183,64 +224,35 @@ fun AdaptationScreen(
                 val tryOn = repository.createTryOn(session.sessionId)
                 repository.fetchTryOnResult(session.sessionId)
                 val tryOnPath = repository.fetchTryOnImagePath(session.sessionId)
-                val tryOnBitmap = tryOnPath?.let { loadRemoteBitmap(it) }
 
-                NailSessionRuntime.current = session.copy(
+                NailSessionRuntime.current = NailSessionRuntime.current?.copy(
                     status = tryOn.status ?: "try_on_ready",
                     handAssetId = uploadAssetId,
                     handStoragePath = uploadPath,
                     handPhotoUrl = publicUrl,
-                    tryOnStatus = tryOn.status,
+                    tryOnStatus = tryOn.status ?: "try_on_ready",
+                    targetImagePath = tryOnPath,
+                ) ?: session.copy(
+                    status = tryOn.status ?: "try_on_ready",
+                    handAssetId = uploadAssetId,
+                    handStoragePath = uploadPath,
+                    handPhotoUrl = publicUrl,
+                    tryOnStatus = tryOn.status ?: "try_on_ready",
                     targetImagePath = tryOnPath,
                 )
-                tryOnBitmap
-            }.onSuccess { tryOnBitmap ->
-                remoteTryOnBitmap = tryOnBitmap
-                statusText = if (tryOnBitmap != null) {
-                    "试戴结果已生成。"
-                } else {
-                    "结果已返回，但图片暂时没读到。"
-                }
             }.onFailure { error ->
-                val detail = error.message ?: "未知错误"
-                statusText = if (detail.contains("Object not found", ignoreCase = true)) {
-                    "手图没有真正上传成功，请重试。"
-                } else {
-                    "试戴生成失败：$detail"
-                }
+                NailSessionRuntime.current = NailSessionRuntime.current?.copy(
+                    tryOnStatus = "failed"
+                )
             }
-            isRendering = false
         }
+
+        // 2. Simultaneously start preparing the guide in the screen scope
+        prepareGuide()
     }
 
-    fun prepareGuide() {
-        val session = NailSessionRuntime.current ?: activeSession
-        if (session == null) {
-            statusText = "没有活跃会话，请返回首页重新开始。"
-            return
-        }
-
-        scope.launch {
-            isPreparingGuide = true
-            statusText = "正在进入视频带做..."
-            runCatching {
-                repository.generateExecutionPackage(session.sessionId)
-                repository.fetchExecutionPackage(session.sessionId)
-            }.onSuccess { executionPackage ->
-                NailSessionRuntime.current = session.copy(
-                    executionStatus = "guide_ready",
-                    estimatedTotalMinutes = executionPackage?.estimated_total_minutes ?: session.estimatedTotalMinutes,
-                    currentStepIndex = 0,
-                    currentStepTitle = executionPackage?.steps?.firstOrNull()?.title,
-                    executionSteps = executionPackage?.steps ?: session.executionSteps,
-                )
-                statusText = "流程已就绪。"
-                onContinue()
-            }.onFailure { error ->
-                statusText = "流程生成失败：${error.message ?: "未知错误"}"
-            }
-            isPreparingGuide = false
-        }
+    fun startDirectSop() {
+        prepareGuide()
     }
 
     Scaffold(
@@ -303,12 +315,9 @@ fun AdaptationScreen(
                 )
             )
 
-            if (remoteTryOnBitmap == null) {
+            if (handBitmap == null) {
                 Button(
-                    onClick = {
-                        if (handBitmap == null) retryCapture() else renderTryOn()
-                    },
-                    enabled = !isRendering,
+                    onClick = { retryCapture() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
@@ -318,48 +327,25 @@ fun AdaptationScreen(
                         contentColor = Color.White,
                     )
                 ) {
-                    if (isRendering) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = Color.White,
+                    Text(
+                        text = "拍张手图开始",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
                         )
-                    } else {
-                        Text(
-                            text = if (handBitmap == null) "拍手并开始试戴" else "开始试戴",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        )
-                    }
+                    )
                 }
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Button(
-                        onClick = {
-                            remoteTryOnBitmap = null
-                            retryCapture()
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(54.dp),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White,
-                            contentColor = TryOnAccent,
-                        )
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                        Text("重试", modifier = Modifier.padding(start = 8.dp))
-                    }
-
-                    Button(
-                        onClick = { prepareGuide() },
+                        onClick = { startAsyncTryOnAndProceed() },
                         enabled = !isPreparingGuide,
                         modifier = Modifier
-                            .weight(1f)
-                            .height(54.dp),
-                        shape = RoundedCornerShape(20.dp),
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(22.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = TryOnAccent,
                             contentColor = Color.White,
@@ -373,10 +359,53 @@ fun AdaptationScreen(
                             )
                         } else {
                             Text(
-                                text = "语音继续",
+                                text = "AI 试戴并进入 (推荐)",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
                                 )
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Button(
+                            onClick = { startDirectSop() },
+                            enabled = !isPreparingGuide,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(54.dp)
+                                .border(1.dp, TryOnBorder, RoundedCornerShape(20.dp)),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = TryOnAccent,
+                            )
+                        ) {
+                            Text(
+                                text = "直达实操 (跳过试戴)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Button(
+                            onClick = { retryCapture() },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(54.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFEFE6DF),
+                                contentColor = TryOnAccent,
+                            )
+                        ) {
+                            Text(
+                                text = "重拍手图",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
