@@ -1,4 +1,4 @@
-name: Build Signed APK & Deploy Supabase
+name: Build Signed APK & Auto Sync to Tencent Cloud
 
 on:
   push:
@@ -51,25 +51,22 @@ jobs:
           name: nailit-signed-release-apk
           path: app/build/outputs/apk/release/app-release.apk
 
-  deploy-supabase:
-    name: Deploy Supabase Edge Functions
+  deploy-tencent-cloud:
+    name: Auto Sync & Deploy to Tencent Cloud
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-
-      - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
+      - name: SSH and Deploy on Tencent Cloud Server
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          version: 'latest'
-
-      - name: Deploy Edge Functions
-        run: |
-          supabase functions deploy create_try_on --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
-          supabase functions deploy create_qwen_temp_token --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
-          supabase functions deploy generate_execution_package --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
-          supabase functions deploy submit_source_link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
-          supabase functions deploy prepare_asset_upload --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
-          supabase functions deploy confirm_asset_upload --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          host: "129.204.200.38"
+          username: "root"
+          password: ${{ secrets.TENCENT_SERVER_PASSWORD }}
+          port: 22
+          script: |
+            echo "连接腾讯云服务器成功，准备开始全自动同步部署..."
+            cd /nait
+            git config --global http.version HTTP/1.1
+            git reset --hard origin/main
+            git pull
+            chmod +x deploy_server.sh
+            ./deploy_server.sh
