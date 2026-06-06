@@ -1,0 +1,57 @@
+project_id = "nail-it-local"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.pooler]
+enabled = false
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[functions.create_session]
+verify_jwt = false
+
+[functions.submit_source_link]
+verify_jwt = false
+
+[functions.prepare_asset_upload]
+verify_jwt = false
+
+[functions.confirm_asset_upload]
+verify_jwt = false
+
+[functions.create_try_on]
+verify_jwt = false
+
+[functions.generate_execution_package]
+verify_jwt = false
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000"]
+jwt_expiry = 3600
+enable_signup = true
+enable_anonymous_sign_ins = true
