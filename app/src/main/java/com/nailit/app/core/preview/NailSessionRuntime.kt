@@ -30,6 +30,8 @@ data class NailSessionSnapshot(
     val sourceParseJson: JsonObject? = null,
     val bomJson: JsonObject? = null,
     val sopJson: JsonObject? = null,
+    val tryOnError: String? = null,
+    val executionError: String? = null,
 )
 
 object NailSessionRuntime {

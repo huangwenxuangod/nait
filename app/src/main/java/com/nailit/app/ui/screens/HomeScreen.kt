@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import android.util.Log
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -168,10 +169,12 @@ fun HomeScreen(
                             status = submit.status ?: "source_parsing",
                         )
                     }.onFailure { error ->
+                        val detailedError = "会话初始化失败: [${error::class.simpleName}] ${error.message}\n原因: ${error.cause?.message ?: "无"}\n堆栈: ${error.stackTrace.take(3).joinToString("\n")}"
+                        Log.e("HomeScreen", "[createSession] Failure: $detailedError", error)
                         NailSessionRuntime.current = NailSessionRuntime.current?.copy(
                             status = "bootstrap_failed",
                         )
-                        statusText = error.message ?: "初始化失败，请重试"
+                        statusText = "初始化失败：${error.message ?: "未知错误"}\n请检查网络连接或稍后重试。"
                     }
                 }
 

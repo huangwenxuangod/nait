@@ -8,6 +8,7 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -159,27 +160,39 @@ fun AdaptationScreen(
         val session = NailSessionRuntime.current ?: activeSession
         if (session == null) {
             statusText = "没有活跃会话，请返回首页重新开始。"
+            Log.e("AdaptationScreen", "[prepareGuide] session is null!")
             return
         }
 
         scope.launch {
             isPreparingGuide = true
             statusText = "正在进入视频带做..."
+            Log.d("AdaptationScreen", "[prepareGuide] Starting guide preparation for sessionId: ${session.sessionId}")
             runCatching {
+                Log.d("AdaptationScreen", "[prepareGuide] Step 1: calling generateExecutionPackage")
                 repository.generateExecutionPackage(session.sessionId)
+                Log.d("AdaptationScreen", "[prepareGuide] Step 2: calling fetchExecutionPackage")
                 repository.fetchExecutionPackage(session.sessionId)
             }.onSuccess { executionPackage ->
+                Log.d("AdaptationScreen", "[prepareGuide] Success. Steps count: ${executionPackage?.steps?.size ?: 0}")
                 NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
                     executionStatus = "guide_ready",
                     estimatedTotalMinutes = executionPackage?.estimated_total_minutes ?: session.estimatedTotalMinutes,
                     currentStepIndex = 0,
                     currentStepTitle = executionPackage?.steps?.firstOrNull()?.title,
                     executionSteps = executionPackage?.steps ?: session.executionSteps,
+                    executionError = null
                 )
                 statusText = "流程已就绪。"
                 onContinue()
             }.onFailure { error ->
-                statusText = "流程生成失败：${error.message ?: "未知错误"}"
+                val detailedError = "SOP生成阶段出错: [${error::class.simpleName}] ${error.message}\n原因: ${error.cause?.message ?: "无"}\n堆栈: ${error.stackTrace.take(3).joinToString("\n")}"
+                Log.e("AdaptationScreen", "[prepareGuide] Failure: $detailedError", error)
+                NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
+                    executionStatus = "failed",
+                    executionError = detailedError
+                )
+                statusText = "流程生成失败，请重试。\n详细错误: ${error.message ?: "未知错误"}"
             }
             isPreparingGuide = false
         }
@@ -190,40 +203,56 @@ fun AdaptationScreen(
         val bitmap = handBitmap
         if (session == null) {
             statusText = "没有活跃会话，请返回首页重新开始。"
+            Log.e("AdaptationScreen", "[startAsyncTryOnAndProceed] session is null!")
             return
         }
         if (bitmap == null) {
             statusText = "请先拍摄或上传手图。"
+            Log.e("AdaptationScreen", "[startAsyncTryOnAndProceed] handBitmap is null!")
             return
         }
 
         // 1. Launch Try-On in the background (survives navigation)
+        Log.d("AdaptationScreen", "[startAsyncTryOnAndProceed] Launching background Try-On task for sessionId: ${session.sessionId}")
         NailSessionRuntime.backgroundScope.launch {
             runCatching {
                 NailSessionRuntime.current = NailSessionRuntime.current?.copy(
-                    tryOnStatus = "try_on_pending"
-                ) ?: session.copy(tryOnStatus = "try_on_pending")
+                    tryOnStatus = "try_on_pending",
+                    tryOnError = null
+                ) ?: session.copy(tryOnStatus = "try_on_pending", tryOnError = null)
 
+                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 1: calling prepareAssetUpload")
                 val upload = repository.prepareAssetUpload(
                     sessionId = session.sessionId,
                     assetType = "hand_photo",
                     mimeType = "image/jpeg",
                 )
-                val uploadPath = upload.storage_path ?: error("prepareAssetUpload missing storage_path")
-                val uploadAssetId = upload.asset_id ?: error("prepareAssetUpload missing asset_id")
+                val uploadPath = upload.storage_path ?: error("prepareAssetUpload returned empty storage_path")
+                val uploadAssetId = upload.asset_id ?: error("prepareAssetUpload returned empty asset_id")
+                
+                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 2: uploading hand photo to storage path: $uploadPath")
                 val publicUrl = SupabaseManager.uploadHandPhotoToPath(
                     photoBytes = bitmapToJpegBytes(bitmap),
                     storagePath = uploadPath,
                 )
+                
+                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 3: calling confirmAssetUpload for assetId: $uploadAssetId")
                 repository.confirmAssetUpload(
                     sessionId = session.sessionId,
                     assetId = uploadAssetId,
                     assetType = "hand_photo",
                     storagePath = uploadPath,
                 )
+                
+                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 4: calling createTryOn")
                 val tryOn = repository.createTryOn(session.sessionId)
+                
+                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 5: calling fetchTryOnResult")
                 repository.fetchTryOnResult(session.sessionId)
+                
+                Log.d("AdaptationScreen", "[BackgroundTryOn] Step 6: calling fetchTryOnImagePath")
                 val tryOnPath = repository.fetchTryOnImagePath(session.sessionId)
+                Log.d("AdaptationScreen", "[BackgroundTryOn] Try-On path fetched: $tryOnPath")
 
                 NailSessionRuntime.current = NailSessionRuntime.current?.copy(
                     status = tryOn.status ?: "try_on_ready",
@@ -232,6 +261,7 @@ fun AdaptationScreen(
                     handPhotoUrl = publicUrl,
                     tryOnStatus = tryOn.status ?: "try_on_ready",
                     targetImagePath = tryOnPath,
+                    tryOnError = null
                 ) ?: session.copy(
                     status = tryOn.status ?: "try_on_ready",
                     handAssetId = uploadAssetId,
@@ -239,10 +269,15 @@ fun AdaptationScreen(
                     handPhotoUrl = publicUrl,
                     tryOnStatus = tryOn.status ?: "try_on_ready",
                     targetImagePath = tryOnPath,
+                    tryOnError = null
                 )
+                Log.d("AdaptationScreen", "[BackgroundTryOn] Background Try-On completed successfully!")
             }.onFailure { error ->
+                val detailedError = "后台试戴生成出错: [${error::class.simpleName}] ${error.message}\n原因: ${error.cause?.message ?: "无"}\n堆栈: ${error.stackTrace.take(3).joinToString("\n")}"
+                Log.e("AdaptationScreen", "[BackgroundTryOn] Failure: $detailedError", error)
                 NailSessionRuntime.current = NailSessionRuntime.current?.copy(
-                    tryOnStatus = "failed"
+                    tryOnStatus = "failed",
+                    tryOnError = detailedError
                 )
             }
         }

@@ -7,7 +7,12 @@ import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
+import android.util.Log
 import android.util.Base64
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Warning
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -65,6 +70,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.ContextCompat
 import com.nailit.app.core.model.ExecutionStep
 import com.nailit.app.core.network.SupabaseManager
@@ -126,6 +132,7 @@ fun ConversationScreen(
     }
     val realtimeState by realtimeManager.state.collectAsState()
     var liveFrameBitmap by remember { mutableStateOf<Bitmap?>(HandPhotoRuntime.currentBitmap) }
+    var showTryOnErrorDialog by remember { mutableStateOf(false) }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -300,6 +307,37 @@ fun ConversationScreen(
                         )
                     }
                 }
+            } else if (activeSession?.tryOnStatus == "failed") {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .size(width = 92.dp, height = 124.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color(0xFF8B0000).copy(alpha = 0.8f))
+                        .border(1.dp, Color.Red.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                        .clickable { showTryOnErrorDialog = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Error",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = "试戴失败\n点此查看",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
             }
 
             Column(
@@ -406,6 +444,30 @@ fun ConversationScreen(
                 }
             }
         }
+    }
+
+    if (showTryOnErrorDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showTryOnErrorDialog = false },
+            title = { Text("试戴生成失败诊断日志") },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text = activeSession?.tryOnError ?: "未获取到具体错误日志信息。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showTryOnErrorDialog = false }) {
+                    Text("确认")
+                }
+            }
+        )
     }
 }
 
