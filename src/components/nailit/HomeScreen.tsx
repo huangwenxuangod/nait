@@ -241,13 +241,6 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
         </div>
       </div>
 
-      {/* Bottom tab bar */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white/95 backdrop-blur-md border-t border-border/60 pt-2 pb-6 px-8 flex items-center justify-between">
-        <TabItem icon={<HomeIcon />} label="首页" active />
-        <TabItem icon={<Sparkles className="w-5 h-5" strokeWidth={1.6} />} label="灵感" />
-        <TabItem icon={<UserIcon />} label="我的" />
-      </div>
-
       {/* ====== Parsing Overlay ====== */}
       {loading && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-8" style={{ backgroundColor: "rgba(250,250,250,0.97)" }}>
@@ -327,29 +320,5 @@ function Platform({ label, color }: { label: string; color: string }) {
       <span className="w-3.5 h-3.5 rounded-sm" style={{ backgroundColor: color }} />
       <span className="text-[11px] text-foreground/80">{label}</span>
     </div>
-  );
-}
-
-function TabItem({ icon, label, active = false }: { icon: React.ReactNode; label: string; active?: boolean }) {
-  return (
-    <button className={`flex flex-col items-center gap-0.5 ${active ? "text-brand" : "text-foreground/40"}`}>
-      {icon}
-      <span className="text-[10px] tracking-wider">{label}</span>
-    </button>
-  );
-}
-
-function HomeIcon() {
-  return (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 11l9-8 9 8" /><path d="M5 10v10h14V10" />
-    </svg>
-  );
-}
-function UserIcon() {
-  return (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 5-6 8-6s6.5 2 8 6" />
-    </svg>
   );
 }
