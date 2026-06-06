@@ -55,8 +55,7 @@ def optimize_compose(file_path):
             else:
                 skip_dep = False
                 
-        # Detect dependency item in "depends_on" (can be at 4, 6, or 8 spaces depending on formatting)
-        # e.g., "imgproxy:" or "- imgproxy"
+        # Detect dependency item in "depends_on"
         if stripped.endswith(':'):
             dep_name = stripped[:-1].strip()
             if dep_name in unwanted:
@@ -70,9 +69,40 @@ def optimize_compose(file_path):
                 
         final_output.append(line)
 
+    # Pass 3: Clean up empty "depends_on:" blocks
+    cleaned_output = []
+    i = 0
+    while i < len(final_output):
+        line = final_output[i]
+        stripped = line.strip()
+        
+        if stripped == 'depends_on:':
+            indent = len(line) - len(line.lstrip())
+            # Look ahead to see if there are any child elements
+            has_children = False
+            j = i + 1
+            while j < len(final_output):
+                next_line = final_output[j]
+                next_stripped = next_line.strip()
+                if not next_stripped:
+                    j += 1
+                    continue
+                next_indent = len(next_line) - len(next_line.lstrip())
+                if next_indent > indent:
+                    has_children = True
+                break
+            
+            if not has_children:
+                # Skip the "depends_on:" line entirely
+                i += 1
+                continue
+                
+        cleaned_output.append(line)
+        i += 1
+
     # Write back the optimized file
     with open(file_path, 'w') as f:
-        f.write('\n'.join(final_output) + '\n')
+        f.write('\n'.join(cleaned_output) + '\n')
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
