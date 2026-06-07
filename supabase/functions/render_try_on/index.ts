@@ -178,7 +178,24 @@ Deno.serve(async (req) => {
         ],
         imageInputs: listImageInputs(tutorialBase64, handBase64),
       }).catch((error) => {
-        throw prefixedError("TRYON_PROMPT_PLAN_FAILED", "Qwen 生成试戴 prompt 失败", error);
+        console.warn("[render_try_on] Qwen planning failed after retries. Falling back to local preset prompt:", error);
+        return {
+          fit_summary: "这款偏暖调，适合大多数黄皮，整体会更显干净。",
+          tone_observation: "建议保留透粉底色和柔和高光，不要把底色做得太冷。",
+          highlight_points: ["通勤友好", "手部会显得更细长", "整体气质偏温柔"],
+          risk_points: ["高闪过多会显得廉价", "法式边过宽会显手短"],
+          render_variants: ["更暖一点", "更自然一点", "更透亮一点"],
+          nail_layout_summary: "模板图整体是通透浅底，局部有高光和法式/装饰变化。",
+          finger_design_map: [
+            { finger: "thumb", design: "通透浅底", placement: "满甲" },
+            { finger: "index", design: "法式或高光装饰", placement: "甲尖与中轴" },
+            { finger: "middle", design: "主视觉高光", placement: "甲面中轴" },
+            { finger: "ring", design: "同模板主色", placement: "满甲" },
+            { finger: "pinky", design: "弱化装饰", placement: "甲尖" },
+          ],
+          render_prompt: renderPrompt,
+          note: "Fallback try-on rendered due to Qwen API/JSON failure.",
+        };
       });
       logger.log("step_6_plan_prompt_done", {
         planner: "qwen",
