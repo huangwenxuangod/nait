@@ -219,7 +219,6 @@ fun HomeScreen(
 
                         val templateUploadDeferred = async {
                             uploadPresetTemplateIfNeeded(
-                                context = context,
                                 repository = repository,
                                 remoteSessionId = remoteSessionId,
                                 template = currentTemplate,
@@ -290,7 +289,6 @@ fun HomeScreen(
 
                 val templateUploadDeferred = async {
                     uploadPresetTemplateIfNeeded(
-                        context = context,
                         repository = repository,
                         remoteSessionId = remoteSessionId,
                         template = currentTemplate,

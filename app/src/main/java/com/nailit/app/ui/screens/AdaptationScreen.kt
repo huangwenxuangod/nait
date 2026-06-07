@@ -69,6 +69,8 @@ import com.nailit.app.core.preview.NailSessionSnapshot
 import com.nailit.app.core.preview.SupabaseFunctionRepository
 import io.github.jan.supabase.storage.storage
 import java.io.ByteArrayOutputStream
+import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -553,9 +555,24 @@ private suspend fun loadRemoteBitmap(storagePath: String): Bitmap? {
 }
 
 private fun bitmapToJpegBytes(bitmap: Bitmap): ByteArray {
+    val prepared = prepareBitmapForUpload(bitmap)
     val output = ByteArrayOutputStream()
-    bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)
+    prepared.compress(Bitmap.CompressFormat.JPEG, 76, output)
+    if (prepared !== bitmap) {
+        prepared.recycle()
+    }
     return output.toByteArray()
+}
+
+private fun prepareBitmapForUpload(bitmap: Bitmap): Bitmap {
+    val maxSide = 1280
+    val longestSide = max(bitmap.width, bitmap.height)
+    if (longestSide <= maxSide) return bitmap
+
+    val scale = maxSide.toFloat() / longestSide.toFloat()
+    val targetWidth = (bitmap.width * scale).roundToInt().coerceAtLeast(1)
+    val targetHeight = (bitmap.height * scale).roundToInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
 }
 
 private fun estimateFallbackNailPositionHints(): List<NailPositionHint> {
