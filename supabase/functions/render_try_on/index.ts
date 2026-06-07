@@ -156,6 +156,7 @@ Deno.serve(async (req) => {
     let resultJson: TryOnPayload;
     if (hasQwenConfig()) {
       resultJson = await createQwenJsonResponse<TryOnPayload>({
+        model: "qwen3.7-plus", // 👈 强行指定使用最新视觉大模型 qwen3.7-plus，防止被服务器环境变量覆盖！
         system:
           "你是一个电商级美甲试戴规划器。你会同时看到模板图和用户手图。你的任务是先分析模板款式在每根手指上的设计分布，再结合用户手图的手指方向与甲面位置，输出可直接给图像编辑模型使用的高精度中文 JSON。必须强调：只修改甲面，不修改肤色、手势、背景和光线。",
         user: JSON.stringify({

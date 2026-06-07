@@ -2,7 +2,7 @@ const QWEN_BASE_URL =
   Deno.env.get("QWEN_BASE_URL") ?? "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const QWEN_API_KEY =
   Deno.env.get("QWEN_API_KEY") ?? Deno.env.get("DASHSCOPE_API_KEY") ?? "";
-const QWEN_TEXT_MODEL = Deno.env.get("QWEN_TEXT_MODEL") ?? "qwen2.5-vl-72b-instruct";
+const QWEN_TEXT_MODEL = Deno.env.get("QWEN_TEXT_MODEL") ?? "qwen3.7";
 
 export function hasQwenConfig() {
   return QWEN_API_KEY.trim().length > 0;

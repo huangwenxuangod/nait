@@ -110,6 +110,7 @@ Deno.serve(async (req) => {
       });
       mockParse = hasQwenConfig()
         ? await createQwenJsonResponse<SourceParsePayload>({
+          model: "qwen3.7-plus", // 👈 使用最新旗舰多模态 Qwen3.7-Plus，支持强大的视频和图像理解！
           system:
             "你是一个美甲教程解析器。根据短视频链接或预设标识，推断可能的美甲风格、视觉元素、关键工艺、步骤、计时和材料。只返回严格 JSON，不要解释。",
           user: `请解析这个来源并输出 JSON：${body.source_url}`,
@@ -150,7 +151,7 @@ Deno.serve(async (req) => {
     });
     await supabase.from("source_parses").upsert({
       session_id: body.session_id,
-      model: hasQwenConfig() ? "qwen2.5-vl-72b-instruct" : "fallback",
+      model: hasQwenConfig() ? "qwen3.7-plus" : "fallback",
       version: "v1",
       parse_json: mockParse,
     });
