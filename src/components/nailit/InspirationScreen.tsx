@@ -31,6 +31,22 @@ export function InspirationScreen({ onSelectVideo }: { onSelectVideo: (title: st
           <p className="mt-1 text-[13px] text-muted-foreground">热门美甲教程 · 粘贴链接即可拆解</p>
         </div>
 
+        {/* Guide banner */}
+        <div className="px-5 mt-5">
+          <div
+            className="rounded-2xl p-4 flex items-center gap-3"
+            style={{ background: "linear-gradient(135deg, rgba(212,163,163,0.08) 0%, rgba(235,216,184,0.12) 100%)", border: "1px solid rgba(212,163,163,0.12)" }}
+          >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0" style={{ backgroundColor: "rgba(212,163,163,0.12)" }}>
+              💡
+            </div>
+            <div>
+              <p className="text-xs font-medium text-foreground">不知道怎么开始？</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">在抖音/小红书找到喜欢的教程 → 复制链接 → 回首页粘贴</p>
+            </div>
+          </div>
+        </div>
+
         {/* Category chips */}
         <div className="px-5 mt-5 flex items-center gap-2 overflow-x-auto no-scrollbar">
           {["全部", "纯色", "渐变", "猫眼", "法式", "手绘", "贴钻", "节日限定"].map((c, i) => (
@@ -53,7 +69,7 @@ export function InspirationScreen({ onSelectVideo }: { onSelectVideo: (title: st
             <button
               key={v.title}
               onClick={() => onSelectVideo(v.title)}
-              className="bg-white rounded-2xl overflow-hidden shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)] active:scale-[0.98] transition text-left"
+              className="bg-white rounded-2xl overflow-hidden shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_20px_-6px_rgba(0,0,0,0.1)] active:scale-[0.98] transition-all duration-200 text-left"
             >
               <div className="aspect-[4/5] relative overflow-hidden bg-muted">
                 <img src={v.img} alt={v.title} loading="lazy" className="w-full h-full object-cover" />

@@ -18,6 +18,7 @@ const demoCompleted = [
 export function ProfileScreen({ wishlist, completed }: Props) {
   const list = wishlist.length > 0 ? wishlist : demoWishlist;
   const done = completed.length > 0 ? completed : demoCompleted;
+  const isEmpty = wishlist.length === 0;
 
   return (
     <PhoneFrame>
@@ -29,7 +30,21 @@ export function ProfileScreen({ wishlist, completed }: Props) {
 
         {/* Stats */}
         <div className="px-5 mt-5">
-          <div className="bg-white rounded-2xl p-4 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] flex items-center justify-around">
+          {isEmpty && (
+            <div
+              className="rounded-2xl p-4 flex items-center gap-3 mb-3"
+              style={{ background: "linear-gradient(135deg, rgba(168,213,186,0.08) 0%, rgba(168,213,186,0.04) 100%)", border: "1px solid rgba(168,213,186,0.15)" }}
+            >
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0" style={{ backgroundColor: "rgba(168,213,186,0.12)" }}>
+                👋
+              </div>
+              <div>
+                <p className="text-xs font-medium text-foreground">欢迎来到指尖 SOP</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">完成第一款美甲后，记录会出现在这里</p>
+              </div>
+            </div>
+          )}
+          <div className="bg-white rounded-2xl p-4 shadow-[0_4px_24px_-10px_rgba(0,0,0,0.08)] flex items-center justify-around">
             <Stat icon={<Heart className="w-4 h-4" />} label="心愿单" value={list.length} color="#D4A3A3" />
             <div className="w-px h-8 bg-border" />
             <Stat icon={<CheckCircle2 className="w-4 h-4" />} label="已完成" value={done.length} color="#A8D5BA" />
@@ -49,7 +64,7 @@ export function ProfileScreen({ wishlist, completed }: Props) {
           </div>
           <div className="space-y-2">
             {list.map((name, i) => (
-              <div key={i} className="bg-white rounded-xl p-3.5 flex items-center gap-3 shadow-[0_1px_6px_-2px_rgba(0,0,0,0.04)]">
+              <div key={i} className="bg-white rounded-xl p-3.5 flex items-center gap-3 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.08)] transition-shadow active:scale-[0.99]">
                 <div className="w-11 h-11 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden">
                   <img src={[insp1, insp3, insp5][i % 3]} alt="" className="w-full h-full object-cover" />
                 </div>
@@ -70,7 +85,7 @@ export function ProfileScreen({ wishlist, completed }: Props) {
           </div>
           <div className="space-y-2">
             {done.map((d, i) => (
-              <div key={i} className="bg-white rounded-xl p-3.5 flex items-center gap-3 shadow-[0_1px_6px_-2px_rgba(0,0,0,0.04)]">
+              <div key={i} className="bg-white rounded-xl p-3.5 flex items-center gap-3 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.08)] transition-shadow active:scale-[0.99]">
                 <div className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: "rgba(168,213,186,0.15)" }}>
                   <CheckCircle2 className="w-5 h-5 text-success" strokeWidth={2} />
                 </div>

@@ -17,7 +17,7 @@ interface Props {
   onQuickStart: () => void;
 }
 
-const steps = ["修剪", "底油", "颜色", "封层", "亮油", "完成"];
+const steps = ["修形", "底胶", "色胶", "照灯", "封层", "精修"];
 const inspirations = [
   { img: insp1, name: "温柔裸粉法式", count: "1.2w 人解析" },
   { img: insp2, name: "焦糖琥珀晕染", count: "8567 人解析" },
@@ -38,6 +38,8 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
   const [loading, setLoading] = useState(false);
   const [parseStage, setParseStage] = useState(0);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [history, setHistory] = useState<{ url: string; title: string; time: string }[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const stageTimer = useRef<number | null>(null);
 
   const startParse = async (url: string) => {
@@ -63,6 +65,7 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
       const result = await parseTutorialLink({ data: { url } });
       if (stageTimer.current) clearTimeout(stageTimer.current);
       setParseStage(PARSE_STAGES.length - 1);
+      setHistory((h) => [{ url, title: result.videoTitle, time: new Date().toLocaleTimeString() }, ...h.slice(0, 9)]);
       setTimeout(() => {
         setLoading(false);
         onParseComplete(result);
@@ -104,9 +107,9 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
               指尖 SOP
               <Sparkles className="w-4 h-4 text-brand animate-sparkle" strokeWidth={2} />
             </h1>
-            <p className="mt-1 text-[13px] text-muted-foreground tracking-wide">AI 美甲步骤生成器</p>
+            <p className="mt-1 text-[13px] text-muted-foreground tracking-wide">试戴看效果 · AI 拆解教程 · 跟着做</p>
           </div>
-          <button className="flex flex-col items-center gap-1 mt-2">
+          <button onClick={() => setShowHistory(true)} className="flex flex-col items-center gap-1 mt-2">
             <div className="w-10 h-10 rounded-full bg-white shadow-[0_2px_10px_rgba(0,0,0,0.04)] border border-border/60 flex items-center justify-center">
               <History className="w-4 h-4 text-foreground/70" strokeWidth={1.8} />
             </div>
@@ -152,7 +155,7 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
           <div className="flex items-center justify-between">
             <Stat icon={<FileText className="w-4 h-4" />} label="12K+ 教程解析" tint="rose" />
             <div className="w-px h-5 bg-border" />
-            <Stat icon={<ListChecks className="w-4 h-4" />} label="6 步拆解" tint="lavender" />
+            <Stat icon={<ListChecks className="w-4 h-4" />} label="智能拆解" tint="lavender" />
             <div className="w-px h-5 bg-border" />
             <Stat icon={<ScanLine className="w-4 h-4" />} label="AI 智能识别" tint="mint" />
           </div>
@@ -243,17 +246,47 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
 
       {/* ====== Parsing Overlay ====== */}
       {loading && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-8" style={{ backgroundColor: "rgba(250,250,250,0.97)" }}>
-          {/* Animated ring */}
-          <div className="mb-10 relative">
-            <div className="w-20 h-20 rounded-full border-2 animate-spin" style={{ borderColor: "rgba(212,163,163,0.15)", borderTopColor: "#D4A3A3" }} />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Sparkles className="w-8 h-8 text-brand animate-sparkle" strokeWidth={1.5} />
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-8" style={{ backgroundColor: "rgba(255,255,255,0.98)" }}>
+          {/* Particles */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            {[1,2,3,4,5,6].map((i) => (
+              <span
+                key={i}
+                className="absolute text-brand"
+                style={{
+                  left: `${15 + (i * 12)}%`,
+                  top: "60%",
+                  fontSize: 8 + i * 2,
+                  animation: `sparkle-particle ${1.2 + i * 0.3}s ${i * 0.2}s ease-out infinite`,
+                  opacity: 0,
+                }}
+              >
+                ✦
+              </span>
+            ))}
+          </div>
+
+          {/* Progress ring + percentage */}
+          <div className="mb-6 relative">
+            <svg className="w-24 h-24 -rotate-90" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="42" stroke="rgba(212,163,163,0.08)" strokeWidth="3" fill="none" />
+              <circle
+                cx="50" cy="50" r="42"
+                stroke="#D4A3A3" strokeWidth="3" fill="none"
+                strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 42}
+                strokeDashoffset={2 * Math.PI * 42 * (1 - parseStage / (PARSE_STAGES.length - 1))}
+                style={{ transition: "stroke-dashoffset 1s ease-out" }}
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-2xl font-light text-brand">{Math.round((parseStage / (PARSE_STAGES.length - 1)) * 100)}%</span>
+              <span className="text-[9px] tracking-widest text-muted-foreground">AI 解析中</span>
             </div>
           </div>
 
           {/* Stage steps */}
-          <div className="w-full max-w-[300px] space-y-1">
+          <div className="w-full max-w-[300px] space-y-0.5">
             {PARSE_STAGES.map((stage, i) => {
               const done = i < parseStage;
               const active = i === parseStage;
@@ -294,6 +327,56 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ====== History Modal ====== */}
+      {showHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ backgroundColor: "rgba(0,0,0,0.4)" }} onClick={() => setShowHistory(false)}>
+          <div className="w-full max-w-[360px] rounded-3xl overflow-hidden" style={{ backgroundColor: "#FAFAFA", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 pt-5 pb-3">
+              <h3 className="text-lg font-medium text-foreground">历史记录</h3>
+              <button onClick={() => setShowHistory(false)} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.04)" }}>
+                <span className="text-muted-foreground text-sm">✕</span>
+              </button>
+            </div>
+            <div className="px-5 pb-6">
+              {history.length === 0 ? (
+                <div className="text-center py-10">
+                  <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center text-xl" style={{ backgroundColor: "rgba(212,163,163,0.08)" }}>
+                    📭
+                  </div>
+                  <p className="text-sm text-muted-foreground">暂无解析记录</p>
+                  <p className="text-[11px] text-muted-foreground/70 mt-1">粘贴抖音链接后会自动记录</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {history.map((h, i) => (
+                    <button
+                      key={i}
+                      onClick={() => { setShowHistory(false); setLink(h.url); startParse(h.url); }}
+                      className="w-full bg-white rounded-xl p-3 flex items-center gap-3 text-left shadow-[0_2px_10px_-4px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.08)] transition-shadow active:scale-[0.99]"
+                    >
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-sm" style={{ backgroundColor: "rgba(212,163,163,0.08)", color: "#D4A3A3" }}>
+                        {i + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-foreground truncate">{h.title}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{h.url}</p>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground/60 shrink-0">{h.time}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => { setHistory([]); setShowHistory(false); }}
+                className="w-full mt-3 py-2.5 rounded-full text-[11px] tracking-wider text-muted-foreground/60 hover:text-destructive transition"
+              >
+                清空记录
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </PhoneFrame>
