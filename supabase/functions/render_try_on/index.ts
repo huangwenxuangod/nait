@@ -2,7 +2,7 @@ import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { getAdminClient } from "../_shared/client.ts";
 import { createRequestLogger, stringifyError } from "../_shared/logger.ts";
-import { createImageEdit, createJsonResponse, hasOpenAiConfig } from "../_shared/openai.ts";
+import { createImageEdit, hasOpenAiConfig } from "../_shared/openai.ts";
 import {
   createQwenStructuredFromText,
   createQwenVisionAnalysis,
@@ -30,6 +30,8 @@ interface TryOnPayload {
 }
 
 const BUCKET = "nail-it-assets";
+const TRY_ON_PLAN_MODE = (Deno.env.get("TRY_ON_PLAN_MODE") ?? "hardcoded").trim().toLowerCase();
+const DEFAULT_STYLE_FAMILY = "soft_cat_eye";
 
 function prefixedError(code: string, message: string, extra?: unknown) {
   const suffix = extra == null ? "" : ` | ${stringifyError(extra)}`;
@@ -124,148 +126,94 @@ const handler = async (req: Request) => {
       hand_base64_length: handBase64.length,
     });
 
-    logger.log("step_5_download_template_start");
-    const { data: tutorialAsset } = await supabase
-      .from("session_assets")
-      .select("storage_path")
-      .eq("session_id", body.session_id)
-      .eq("asset_type", "tutorial_frame")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    let tutorialBase64 = "";
-    if (tutorialAsset?.storage_path) {
-      const { data: tutorialFile, error: tutorialFileError } = await supabase.storage
-        .from(BUCKET)
-        .download(tutorialAsset.storage_path);
-      if (!tutorialFileError && tutorialFile) {
-        const tutorialBytes = new Uint8Array(await tutorialFile.arrayBuffer());
-        tutorialBase64 = btoa(String.fromCharCode(...tutorialBytes));
-      }
-    }
-    logger.log("step_5_download_template_done", {
-      tutorial_storage_path: tutorialAsset?.storage_path ?? null,
-      tutorial_base64_length: tutorialBase64.length,
-    });
-
     const parseJson = parseRecord?.parse_json ?? {};
     const styleName = session?.style_name ?? "未命名款式";
-    const renderPrompt = buildRenderPrompt(styleName, parseJson);
+    const sourceUrl = session?.source_url ?? "";
+    const styleFamily = detectStyleFamily(styleName, sourceUrl, parseJson);
+    const hardcodedPlan = buildHardcodedTryOnPlan({
+      styleName,
+      sourceUrl,
+      parseJson,
+      styleFamily,
+    });
+    const useHardcodedPlan = shouldUseHardcodedPlan({
+      styleName,
+      sourceUrl,
+      parseJson,
+      planMode: TRY_ON_PLAN_MODE,
+    });
+
+    let tutorialBase64 = "";
+    if (!useHardcodedPlan) {
+      logger.log("step_5_download_template_start");
+      const { data: tutorialAsset } = await supabase
+        .from("session_assets")
+        .select("storage_path")
+        .eq("session_id", body.session_id)
+        .eq("asset_type", "tutorial_frame")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (tutorialAsset?.storage_path) {
+        const { data: tutorialFile, error: tutorialFileError } = await supabase.storage
+          .from(BUCKET)
+          .download(tutorialAsset.storage_path);
+        if (!tutorialFileError && tutorialFile) {
+          const tutorialBytes = new Uint8Array(await tutorialFile.arrayBuffer());
+          tutorialBase64 = btoa(String.fromCharCode(...tutorialBytes));
+        }
+      }
+      logger.log("step_5_download_template_done", {
+        tutorial_base64_length: tutorialBase64.length,
+      });
+    } else {
+      logger.log("step_5_download_template_skipped", {
+        reason: "hardcoded_plan",
+        style_family: styleFamily,
+      });
+    }
 
     logger.log("step_6_plan_prompt_start", {
       style_name: styleName,
       parse_keys: Object.keys(parseJson ?? {}),
+      plan_mode: TRY_ON_PLAN_MODE,
+      use_hardcoded_plan: useHardcodedPlan,
+      style_family: styleFamily,
     });
     let resultJson: TryOnPayload;
-    if (hasQwenConfig()) {
+    if (useHardcodedPlan) {
+      resultJson = hardcodedPlan;
+      logger.log("step_6_hardcoded_plan_used", {
+        style_family: styleFamily,
+        note: resultJson.note,
+      });
+    } else if (hasQwenConfig()) {
       resultJson = await buildTryOnPlanWithQwenTwoStage({
         styleName,
-        sourceUrl: session?.source_url ?? "",
+        sourceUrl,
         parseJson,
         nailPositionHints: body.nail_position_hints ?? [],
         tutorialBase64,
         handBase64,
         logger,
       }).catch((error) => {
-        console.warn("[render_try_on] Qwen planning failed after retries. Falling back to local preset prompt:", error);
-        return {
-          fit_summary: "这款偏暖调，适合大多数黄皮，整体会更显干净。",
-          tone_observation: "建议保留透粉底色和柔和高光，不要把底色做得太冷。",
-          highlight_points: ["通勤友好", "手部会显得更细长", "整体气质偏温柔"],
-          risk_points: ["高闪过多会显得廉价", "法式边过宽会显手短"],
-          render_variants: ["更暖一点", "更自然一点", "更透亮一点"],
-          nail_layout_summary: "模板图整体是通透浅底，局部有高光和法式/装饰变化。",
-          finger_design_map: [
-            { finger: "thumb", design: "通透浅底", placement: "满甲" },
-            { finger: "index", design: "法式或高光装饰", placement: "甲尖与中轴" },
-            { finger: "middle", design: "主视觉高光", placement: "甲面中轴" },
-            { finger: "ring", design: "同模板主色", placement: "满甲" },
-            { finger: "pinky", design: "弱化装饰", placement: "甲尖" },
-          ],
-          render_prompt: renderPrompt,
-          note: "Fallback try-on rendered due to Qwen API/JSON failure.",
-        };
+        logger.warn("step_6_qwen_plan_failed_fallback", {
+          error: stringifyError(error),
+          style_family: styleFamily,
+        });
+        return hardcodedPlan;
       });
       logger.log("step_6_plan_prompt_done", {
         planner: "qwen_two_stage",
         variant_count: resultJson.render_variants?.length ?? 0,
       });
-    } else if (hasOpenAiConfig()) {
-      resultJson = await createJsonResponse<TryOnPayload>({
-        system:
-          "你是一个电商级美甲试戴规划器。你会同时看到模板图和用户手图。你的任务是先分析模板款式在每根手指上的设计分布，再结合用户手图的手指方向与甲面位置，输出可直接给图像编辑模型使用的高精度中文 JSON。必须强调：只修改甲面，不修改肤色、手势、背景和光线。",
-        user: JSON.stringify({
-          style_name: styleName,
-          source_url: session?.source_url ?? "",
-          parse_json: parseJson,
-          nail_position_hints: body.nail_position_hints ?? [],
-        }),
-        jsonSchema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            fit_summary: { type: "string" },
-            tone_observation: { type: "string" },
-            highlight_points: { type: "array", items: { type: "string" } },
-            risk_points: { type: "array", items: { type: "string" } },
-            render_variants: { type: "array", items: { type: "string" } },
-            nail_layout_summary: { type: "string" },
-            finger_design_map: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  finger: { type: "string" },
-                  design: { type: "string" },
-                  placement: { type: "string" },
-                },
-                required: ["finger", "design", "placement"],
-              },
-            },
-            render_prompt: { type: "string" },
-            note: { type: "string" },
-          },
-          required: [
-            "fit_summary",
-            "tone_observation",
-            "highlight_points",
-            "risk_points",
-            "render_variants",
-            "nail_layout_summary",
-            "finger_design_map",
-            "render_prompt",
-            "note",
-          ],
-        },
-        imageInputs: listImageInputs(tutorialBase64, handBase64),
-      }).catch((error) => {
-        throw prefixedError("TRYON_PROMPT_PLAN_FAILED", "OpenAI 生成试戴 prompt 失败", error);
-      });
-      logger.log("step_6_plan_prompt_done", {
-        planner: "openai",
-        variant_count: resultJson.render_variants?.length ?? 0,
-      });
     } else {
-      resultJson = {
-        fit_summary: "这款偏暖调，适合大多数黄皮，整体会更显干净。",
-        tone_observation: "建议保留透粉底色和柔和高光，不要把底色做得太冷。",
-        highlight_points: ["通勤友好", "手部会显得更细长", "整体气质偏温柔"],
-        risk_points: ["高闪过多会显得廉价", "法式边过宽会显手短"],
-        render_variants: ["更暖一点", "更自然一点", "更透亮一点"],
-        nail_layout_summary: "模板图整体是通透浅底，局部有高光和法式装饰变化。",
-        finger_design_map: [
-          { finger: "thumb", design: "通透浅底", placement: "满甲" },
-          { finger: "index", design: "法式或高光装饰", placement: "甲尖与中轴" },
-          { finger: "middle", design: "主视觉高光", placement: "甲面中轴" },
-          { finger: "ring", design: "同模板主色", placement: "满甲" },
-          { finger: "pinky", design: "弱化装饰", placement: "甲尖" },
-        ],
-        render_prompt: renderPrompt,
-        note: "Fallback try-on rendered without API Keys.",
-      };
-      logger.warn("step_6_plan_prompt_fallback");
+      resultJson = hardcodedPlan;
+      logger.warn("step_6_plan_prompt_fallback", {
+        reason: "qwen_unavailable_or_disabled",
+        style_family: styleFamily,
+      });
     }
 
     if (!hasOpenAiConfig()) {
@@ -277,9 +225,13 @@ const handler = async (req: Request) => {
 
     const fingerDesignMap = Array.isArray(resultJson?.finger_design_map) ? resultJson.finger_design_map : [];
     const nailLayoutSummary = resultJson?.nail_layout_summary ?? "";
-    const renderPromptText = resultJson?.render_prompt ?? renderPrompt;
-    const finalPrompt =
-      `${renderPromptText}\n\n补充约束：${nailLayoutSummary}\n每根手指设计映射：${fingerDesignMap.map((item) => `${item?.finger ?? ""}:${item?.design ?? ""}(${item?.placement ?? ""})`).join("；")}。\n用户甲面位置提示：${formatNailHints(body.nail_position_hints ?? [])}。请优先把设计落在这些甲面位置附近，只修改对应甲面区域。`;
+    const renderPromptText = resultJson?.render_prompt ?? hardcodedPlan.render_prompt;
+    const finalPrompt = buildFinalImagePrompt({
+      renderPromptText,
+      nailLayoutSummary,
+      fingerDesignMap,
+      nailPositionHints: body.nail_position_hints ?? [],
+    });
 
     logger.log("step_7_image_edit_start", {
       image_model: Deno.env.get("OPENAI_IMAGE_MODEL") ?? "gpt-image-2",
@@ -392,24 +344,6 @@ export default handler;
 
 Deno.serve(handler);
 
-function buildRenderPrompt(styleName: string, parseJson: Record<string, unknown>) {
-  const tags = Array.isArray(parseJson?.style_tags) ? parseJson.style_tags.join("、") : "";
-  const visuals = Array.isArray(parseJson?.visual_elements) ? parseJson.visual_elements.join("、") : "";
-
-  return [
-    "请把用户手图编辑成真实的美甲试戴图。",
-    "你会同时参考模板图和用户手图。",
-    "必须保留用户原始手势、手指数量、肤色、背景、透视和光线。",
-    "只能修改可见甲面区域，不允许改动皮肤、桌面、电脑、手指结构。",
-    `模板款式名称：${styleName}。`,
-    tags ? `模板风格标签：${tags}。` : "",
-    visuals ? `模板视觉元素：${visuals}。` : "",
-    "请把模板图里的颜色关系、法式边、猫眼高光、跳色、饰品位置准确迁移到用户指甲上。",
-    "生成效果要像电商试戴图，甲面贴合、边缘自然、反光克制、不要假手假甲。",
-    "禁止新增戒指、手链、贴纸、水印、文字、额外手指或额外手部。",
-  ].filter(Boolean).join(" ");
-}
-
 async function buildTryOnPlanWithQwenTwoStage({
   styleName,
   sourceUrl,
@@ -507,6 +441,220 @@ function listImageInputs(tutorialBase64: string, handBase64: string) {
     });
   }
   return images;
+}
+
+function shouldUseHardcodedPlan({
+  styleName,
+  sourceUrl,
+  parseJson,
+  planMode,
+}: {
+  styleName: string;
+  sourceUrl: string;
+  parseJson: Record<string, unknown>;
+  planMode: string;
+}) {
+  if (planMode !== "qwen") return true;
+  if (!styleName || styleName.includes("未命名")) return true;
+  if (!hasUsefulParse(parseJson)) return true;
+  if (!sourceUrl) return true;
+  return false;
+}
+
+function hasUsefulParse(parseJson: Record<string, unknown>) {
+  const tags = asStringArray(parseJson.style_tags);
+  const visuals = asStringArray(parseJson.visual_elements);
+  const steps = Array.isArray(parseJson.steps) ? parseJson.steps.length : 0;
+  return tags.length > 0 || visuals.length > 0 || steps > 0;
+}
+
+function detectStyleFamily(
+  styleName: string,
+  sourceUrl: string,
+  parseJson: Record<string, unknown>,
+) {
+  const haystack = [
+    styleName,
+    sourceUrl,
+    ...asStringArray(parseJson.style_tags),
+    ...asStringArray(parseJson.visual_elements),
+  ].join(" ").toLowerCase();
+
+  if (haystack.includes("法式") && haystack.includes("猫眼")) return "french_cat_eye";
+  if (haystack.includes("法式")) return "french_clean";
+  if (haystack.includes("极光") || haystack.includes("烟花")) return "aurora_glow";
+  if (haystack.includes("裸粉") || haystack.includes("豆沙")) return "soft_nude";
+  if (haystack.includes("纯欲") || haystack.includes("透粉")) return "soft_nude";
+  return DEFAULT_STYLE_FAMILY;
+}
+
+function buildHardcodedTryOnPlan({
+  styleName,
+  sourceUrl,
+  parseJson,
+  styleFamily,
+}: {
+  styleName: string;
+  sourceUrl: string;
+  parseJson: Record<string, unknown>;
+  styleFamily: string;
+}): TryOnPayload {
+  const tags = asStringArray(parseJson.style_tags);
+  const visuals = asStringArray(parseJson.visual_elements);
+  const displayName = styleName && !styleName.includes("未命名") ? styleName : "通透裸粉猫眼";
+  const styleSummary = tags.concat(visuals).slice(0, 6).join("、");
+  const familyCopy = getStyleFamilyCopy(styleFamily);
+
+  return {
+    fit_summary: familyCopy.fitSummary,
+    tone_observation: familyCopy.toneObservation,
+    highlight_points: familyCopy.highlightPoints,
+    risk_points: familyCopy.riskPoints,
+    render_variants: familyCopy.renderVariants,
+    nail_layout_summary: familyCopy.nailLayoutSummary,
+    finger_design_map: familyCopy.fingerDesignMap,
+    render_prompt: [
+      "请把这张真实手部照片编辑成电商级美甲试戴结果图。",
+      "只允许修改甲面，不允许修改手型、手势、皮肤纹理、背景、桌面、光线和拍摄角度。",
+      `款式名：${displayName}。`,
+      styleSummary ? `风格关键词：${styleSummary}。` : "",
+      sourceUrl ? `来源提示：${sourceUrl}。` : "",
+      familyCopy.promptCore,
+      "甲面边缘必须贴合真实指甲轮廓，反光自然，不能出现假甲悬浮、皮肤染色、额外手指、额外饰品、文字水印。",
+    ].filter(Boolean).join(" "),
+    note: `Hardcoded try-on plan used for ${styleFamily}.`,
+  };
+}
+
+function getStyleFamilyCopy(styleFamily: string) {
+  switch (styleFamily) {
+    case "french_cat_eye":
+      return {
+        fitSummary: "这类细法式加猫眼高光更适合做成干净、显手长的效果。",
+        toneObservation: "底色保持奶透粉，猫眼高光不要太冷太亮。",
+        highlightPoints: ["显手指修长", "近距离看更精致", "通勤和约会都能成立"],
+        riskPoints: ["法式边过宽会显厚重", "高光太白会显脏灰"],
+        renderVariants: ["法式边更细", "猫眼更柔一点", "整体更奶透一点"],
+        nailLayoutSummary: "以奶透底色为主，食指中指增加法式和猫眼主高光，无名指呼应主色。",
+        fingerDesignMap: [
+          { finger: "thumb", design: "奶透粉底色", placement: "满甲" },
+          { finger: "index", design: "细法式边加轻猫眼", placement: "甲尖与中轴" },
+          { finger: "middle", design: "主猫眼高光", placement: "甲面中轴" },
+          { finger: "ring", design: "奶透底色加弱法式", placement: "满甲与甲尖" },
+          { finger: "pinky", design: "极细法式边", placement: "甲尖" },
+        ],
+        promptCore: "整体做成奶透裸粉底色，保留细法式白边和柔和猫眼高光，重点放在食指和中指，风格克制、精致、显手白。",
+      };
+    case "french_clean":
+      return {
+        fitSummary: "细法式本身就很稳定，重点是控制边缘宽度和底色通透度。",
+        toneObservation: "底色更偏奶透裸粉，白边保持细且整齐。",
+        highlightPoints: ["最不挑肤色", "试戴容错高", "看起来干净高级"],
+        riskPoints: ["白边过粗会变笨重", "底色太白会显假"],
+        renderVariants: ["更细白边", "更透明底色", "更圆润甲型"],
+        nailLayoutSummary: "整体统一奶透底，所有手指使用细法式边，个别手指略加强对比。",
+        fingerDesignMap: [
+          { finger: "thumb", design: "奶透法式", placement: "甲尖" },
+          { finger: "index", design: "奶透法式", placement: "甲尖" },
+          { finger: "middle", design: "奶透法式", placement: "甲尖" },
+          { finger: "ring", design: "奶透法式", placement: "甲尖" },
+          { finger: "pinky", design: "奶透法式", placement: "甲尖" },
+        ],
+        promptCore: "把所有指甲编辑成奶透裸粉底色配细白法式边，边缘整洁锐利但不要过宽，整体像高级日常款。",
+      };
+    case "aurora_glow":
+      return {
+        fitSummary: "极光和烟花类效果更看重局部高光位置，做好会很出片。",
+        toneObservation: "底色尽量透，亮片和极光高光控制在局部，不要整片发白。",
+        highlightPoints: ["出片感强", "有明显试戴惊艳感", "电商展示效果更好"],
+        riskPoints: ["高光过满会显廉价", "冷白闪片过多会压黄皮"],
+        renderVariants: ["更暖一点", "闪度低一点", "局部高光更集中"],
+        nailLayoutSummary: "透底配局部极光高光，中指无名指作为主视觉，其他手指弱化处理。",
+        fingerDesignMap: [
+          { finger: "thumb", design: "透底微光", placement: "满甲" },
+          { finger: "index", design: "轻极光偏光", placement: "甲面上半部" },
+          { finger: "middle", design: "主极光高光", placement: "中轴偏斜" },
+          { finger: "ring", design: "主视觉闪光", placement: "中轴与甲尖" },
+          { finger: "pinky", design: "弱化极光", placement: "甲尖" },
+        ],
+        promptCore: "做成透感底色加局部极光或烟花高光，中指和无名指最亮，其余手指只做弱化呼应，避免廉价满闪。",
+      };
+    case "soft_nude":
+      return {
+        fitSummary: "裸粉豆沙类最适合先打可靠结果，重点是自然贴甲和肤色协调。",
+        toneObservation: "用暖豆沙或透粉，不要偏灰紫。",
+        highlightPoints: ["最适合黄皮", "看起来温柔", "失败风险最低"],
+        riskPoints: ["底色太实会显闷", "偏灰会显手脏"],
+        renderVariants: ["更透一点", "更豆沙一点", "加一点微光"],
+        nailLayoutSummary: "整体统一暖豆沙透粉底色，个别手指加轻微水光或细闪。",
+        fingerDesignMap: [
+          { finger: "thumb", design: "暖豆沙透粉", placement: "满甲" },
+          { finger: "index", design: "暖豆沙透粉", placement: "满甲" },
+          { finger: "middle", design: "透粉加微光", placement: "甲面中轴" },
+          { finger: "ring", design: "暖豆沙透粉", placement: "满甲" },
+          { finger: "pinky", design: "暖豆沙透粉", placement: "满甲" },
+        ],
+        promptCore: "整体做成暖豆沙或透粉裸色甲面，质感自然通透，微光只放在中指附近，保持电商试戴的真实感。",
+      };
+    default:
+      return {
+        fitSummary: "这款适合先做成通透、干净、偏暖的保守版试戴结果，保证稳定可看。",
+        toneObservation: "优先暖透粉底色，局部高光克制处理。",
+        highlightPoints: ["最稳妥", "不容易翻车", "方便继续推进后续 SOP"],
+        riskPoints: ["装饰太多会偏假", "高光过强会显廉价"],
+        renderVariants: ["更自然", "更暖一点", "更透亮一点"],
+        nailLayoutSummary: "整体通透浅底，中指主高光，其他手指做弱装饰呼应。",
+        fingerDesignMap: [
+          { finger: "thumb", design: "通透浅底", placement: "满甲" },
+          { finger: "index", design: "轻装饰", placement: "甲尖与中轴" },
+          { finger: "middle", design: "主高光", placement: "甲面中轴" },
+          { finger: "ring", design: "同主色弱化版", placement: "满甲" },
+          { finger: "pinky", design: "极弱装饰", placement: "甲尖" },
+        ],
+        promptCore: "把所有指甲做成通透暖粉底色，中指保留主高光，其余手指只做弱化装饰，效果真实、克制、像电商试戴图。",
+      };
+  }
+}
+
+function buildFinalImagePrompt({
+  renderPromptText,
+  nailLayoutSummary,
+  fingerDesignMap,
+  nailPositionHints,
+}: {
+  renderPromptText: string;
+  nailLayoutSummary: string;
+  fingerDesignMap: Array<{
+    finger: string;
+    design: string;
+    placement: string;
+  }>;
+  nailPositionHints: Array<{
+    finger: string;
+    center_x: number;
+    center_y: number;
+    width_ratio: number;
+    height_ratio: number;
+    angle_deg: number;
+  }>;
+}) {
+  const mappedDesigns = fingerDesignMap
+    .map((item) => `${item?.finger ?? ""}:${item?.design ?? ""}(${item?.placement ?? ""})`)
+    .join("；");
+  const hintText = formatNailHints(nailPositionHints);
+
+  return [
+    renderPromptText,
+    nailLayoutSummary ? `布局：${nailLayoutSummary}。` : "",
+    mappedDesigns ? `手指映射：${mappedDesigns}。` : "",
+    hintText !== "none" ? `甲面定位提示：${hintText}。` : "",
+    "必须只在真实甲面范围内编辑，边缘紧贴甲床，禁止改动皮肤和背景。",
+  ].filter(Boolean).join("\n");
+}
+
+function asStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
 function formatNailHints(
