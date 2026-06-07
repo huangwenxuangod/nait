@@ -7,6 +7,8 @@ import insp5 from "@/assets/insp-5.jpg";
 interface Props {
   wishlist: string[];
   completed: { title: string; date: string; steps: number }[];
+  skillLevel: string;
+  points: number;
 }
 
 const demoWishlist = ["温柔裸粉法式美甲", "猫眼星空紫", "圣诞雪花限定款"];
@@ -15,11 +17,10 @@ const demoCompleted = [
   { title: "焦糖琥珀晕染", date: "2026-06-05", steps: 5 },
 ];
 
-export function ProfileScreen({ wishlist, completed }: Props) {
+export function ProfileScreen({ wishlist, completed, skillLevel, points }: Props) {
   const list = wishlist.length > 0 ? wishlist : demoWishlist;
   const done = completed.length > 0 ? completed : demoCompleted;
   const isEmpty = wishlist.length === 0;
-  const points = done.length * 100;
 
 
   return (
@@ -36,7 +37,7 @@ export function ProfileScreen({ wishlist, completed }: Props) {
               }}
             >
               {points >= 1000 ? "💎" : points >= 500 ? "🌟" : points >= 200 ? "⭐" : "🌱"}
-              {points >= 1000 ? "大师" : points >= 500 ? "进阶" : points >= 200 ? "入门" : "新手"}
+              {skillLevel}
             </span>
           </div>
           <p className="mt-1 text-[13px] text-muted-foreground">心愿单 · 制作记录</p>
@@ -77,15 +78,26 @@ export function ProfileScreen({ wishlist, completed }: Props) {
             <span className="text-[11px] text-muted-foreground">{list.length} 款</span>
           </div>
           <div className="space-y-2">
-            {list.map((name, i) => (
-              <div key={i} className="bg-white rounded-xl p-3.5 flex items-center gap-3 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.08)] transition-shadow active:scale-[0.99]">
-                <div className="w-11 h-11 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden">
-                  <img src={[insp1, insp3, insp5][i % 3]} alt="" className="w-full h-full object-cover" />
+            {list.map((name, i) => {
+              const isCompleted = done.some((d) => d.title === name);
+              return (
+                <div key={i} className="bg-white rounded-xl p-3.5 flex items-center gap-3 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.08)] transition-shadow active:scale-[0.99]">
+                  <div className="w-11 h-11 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+                    <img src={[insp1, insp3, insp5][i % 3]} alt="" className="w-full h-full object-cover" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-[13px] text-foreground block truncate">{name}</span>
+                    <span
+                      className="text-[10px] mt-0.5 block"
+                      style={{ color: isCompleted ? "#A8D5BA" : "var(--color-muted-foreground)" }}
+                    >
+                      {isCompleted ? "· 已完成" : "· 未制作"}
+                    </span>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
                 </div>
-                <span className="text-[13px] text-foreground flex-1">{name}</span>
-                <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -100,8 +112,8 @@ export function ProfileScreen({ wishlist, completed }: Props) {
           <div className="space-y-2">
             {done.map((d, i) => (
               <div key={i} className="bg-white rounded-xl p-3.5 flex items-center gap-3 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.08)] transition-shadow active:scale-[0.99]">
-                <div className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: "rgba(168,213,186,0.15)" }}>
-                  <CheckCircle2 className="w-5 h-5 text-success" strokeWidth={2} />
+                <div className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0 overflow-hidden bg-muted">
+                  <img src={[insp1, insp3, insp5][i % 3]} alt="" className="w-full h-full object-cover" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="text-[13px] text-foreground block truncate">{d.title}</span>

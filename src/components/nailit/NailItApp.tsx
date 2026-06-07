@@ -56,6 +56,8 @@ export function NailItApp() {
   const [tutorialData, setTutorialData] = useState<TutorialData | null>(null);
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [completed, setCompleted] = useState<{ title: string; date: string; steps: number }[]>([]);
+  const points = completed.length * 100;
+  const skillLevel = points >= 1000 ? "大师" : points >= 500 ? "进阶" : points >= 200 ? "入门" : "新手";
   const [genderMode, setGenderMode] = useState<"all" | "male">("all");
   const screenKey = useRef(0);
 
@@ -102,18 +104,24 @@ export function NailItApp() {
             return render(
               <InspirationScreen
                 genderMode={genderMode}
+                wishlist={wishlist}
+                onToggleWishlist={(title) => {
+                  setWishlist((w) => w.includes(title) ? w.filter((t) => t !== title) : [title, ...w]);
+                }}
                 onSelectVideo={(title) => {
                   setWishlist((w) => (w.includes(title) ? w : [title, ...w]));
                 }}
               />,
             );
           case "profile":
-            return render(<ProfileScreen wishlist={wishlist} completed={completed} />);
+            return render(<ProfileScreen wishlist={wishlist} completed={completed} skillLevel={skillLevel} points={points} />);
           case "shapeTrial":
             return render(
               <NailShapeTrialScreen
                 styleName={tutorialData?.videoTitle ?? "当前款式"}
                 primaryColor="#D4A3A3"
+                stepCount={tutorialData?.steps.length ?? 6}
+                skillLevel={skillLevel}
                 onBack={() => navigate("home")}
                 onConfirm={(shape, length) => {
                   navigate("tryon");

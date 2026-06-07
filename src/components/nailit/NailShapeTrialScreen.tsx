@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { PhoneFrame } from "./PhoneFrame";
-import { ChevronLeft, Check } from "lucide-react";
+import { ChevronLeft, Check, Clock } from "lucide-react";
+
+interface Props {
+  styleName: string;
+  primaryColor: string;
+  stepCount: number;
+  skillLevel: string;
+  onBack: () => void;
+  onConfirm: (shape: string, length: string) => void;
+}
 
 interface ShapeInfo {
   id: string;
@@ -23,12 +32,17 @@ interface Props {
   onConfirm: (shape: string, length: string) => void;
 }
 
-export function NailShapeTrialScreen({ styleName, primaryColor, onBack, onConfirm }: Props) {
+export function NailShapeTrialScreen({ styleName, primaryColor, stepCount, skillLevel, onBack, onConfirm }: Props) {
   const [shapeIdx, setShapeIdx] = useState(0);
   const [length, setLength] = useState<"short" | "medium" | "long">("medium");
 
   const shape = SHAPES[shapeIdx];
   const color = primaryColor || "#D4A3A3";
+
+  // 预估耗时
+  const perStepMin = skillLevel === "新手" ? 4 : skillLevel === "入门" ? 3 : skillLevel === "进阶" ? 2.5 : 2;
+  const setupMin = 10;
+  const totalMin = Math.round(stepCount * perStepMin + setupMin);
 
   return (
     <PhoneFrame>
@@ -157,6 +171,17 @@ export function NailShapeTrialScreen({ styleName, primaryColor, onBack, onConfir
                 {l === "short" ? "短" : l === "medium" ? "中" : "长"}
               </button>
             ))}
+          </div>
+
+          {/* Time estimate */}
+          <div
+            className="mb-4 rounded-xl px-4 py-3 flex items-center justify-center gap-2"
+            style={{ backgroundColor: "rgba(0,0,0,0.03)" }}
+          >
+            <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-[11px] text-muted-foreground">
+              <span className="font-medium text-foreground">{totalMin} 分钟</span> · {skillLevel} · {stepCount} 个步骤
+            </span>
           </div>
 
           {/* Confirm */}

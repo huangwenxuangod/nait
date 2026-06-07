@@ -4,11 +4,22 @@ import { PhoneFrame } from "./PhoneFrame";
 import { parseTutorialLink } from "@/lib/api/tutorial.functions";
 import type { TutorialData } from "@/lib/types";
 import tutorialCover from "@/assets/tutorial-cover.jpg";
-import insp1 from "@/assets/insp-1.jpg";
-import insp2 from "@/assets/insp-2.jpg";
-import insp3 from "@/assets/insp-3.jpg";
-import insp4 from "@/assets/insp-4.jpg";
-import insp5 from "@/assets/insp-5.jpg";
+
+// 自动加载灵感图片
+const inspirationModules = import.meta.glob<{ default: string }>("../../assets/inspiration/*.{jpg,jpeg,png,webp}", { eager: true });
+const inspirations = Object.entries(inspirationModules).map(([path, mod]) => {
+  const filename = path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
+  return { img: mod.default, name: filename.replace(/\[.*\]/, "").trim(), count: "" };
+});
+
+// fallback
+if (inspirations.length === 0) {
+  const fallback = import.meta.glob<{ default: string }>("../../assets/insp-*.{jpg,jpeg,png,webp}", { eager: true });
+  const names = ["温柔裸粉法式", "焦糖琥珀晕染", "透亮冰透款", "清新花卉款", "气质豆沙款"];
+  Object.values(fallback).forEach((mod, i) => {
+    inspirations.push({ img: mod.default, name: names[i] ?? `灵感${i}`, count: "" });
+  });
+}
 
 interface Props {
   handImage: string | null;
@@ -20,13 +31,6 @@ interface Props {
 }
 
 const steps = ["修形", "底胶", "色胶", "照灯", "封层", "精修"];
-const inspirations = [
-  { img: insp1, name: "温柔裸粉法式", count: "1.2w 人解析" },
-  { img: insp2, name: "焦糖琥珀晕染", count: "8567 人解析" },
-  { img: insp3, name: "透亮冰透款", count: "1.1w 人解析" },
-  { img: insp4, name: "清新花卉款", count: "9234 人解析" },
-  { img: insp5, name: "气质豆沙款", count: "7643 人解析" },
-];
 
 const PARSE_STAGES = [
   { icon: "🔍", label: "识别链接来源", detail: "检测到 抖音 平台视频" },
@@ -242,7 +246,6 @@ export function HomeScreen({ onParseComplete, onQuickStart, onGenderPick, onGoTo
                     <img src={i.img} alt={i.name} loading="lazy" width={512} height={512} className="w-full h-full object-cover" />
                   </div>
                   <p className="mt-1.5 text-[12px] text-foreground truncate">{i.name}</p>
-                  <p className="text-[10px] text-muted-foreground">{i.count}</p>
                 </button>
               ))}
             </div>

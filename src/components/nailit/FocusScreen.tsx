@@ -299,34 +299,34 @@ export function FocusScreen({ onExit, missingItems, tutorialData, genderMode }: 
         {/* Main instruction area */}
         <div className="px-7 mt-4 flex-1 flex flex-col">
           <p className="text-xs tracking-[0.3em] text-brand uppercase">Step {String(step.step).padStart(2, "0")} · {step.title}</p>
-          <h2 className="mt-2 text-3xl font-light leading-snug text-foreground">{step.instruction}</h2>
-          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{step.detail}</p>
+          <h2 className="mt-2 text-2xl font-light leading-snug text-foreground">{step.instruction}</h2>
 
-          {/* AI Tip Bubble */}
-          <div
-            className="mt-4 rounded-2xl px-4 py-3"
-            style={{ backgroundColor: "rgba(168,213,186,0.08)", border: "1px solid rgba(168,213,186,0.2)" }}
-          >
-            <div className="flex items-center gap-1.5 mb-2 text-[10px] tracking-widest text-success">
-              <span>✨</span>
-              <span>AI 解读</span>
-            </div>
-            <p className="text-sm text-foreground/80 leading-relaxed">{step.aiTranslation}</p>
-
-            {genderMode === "male" && (
-              <div
-                className="mt-3 rounded-xl px-3 py-2.5"
-                style={{ backgroundColor: "rgba(90,155,122,0.06)", borderLeft: "3px solid #5A9B7A" }}
-              >
-                <p className="text-[10px] tracking-widest mb-1" style={{ color: "#5A9B7A" }}>🧔‍♂️ 男士美甲建议</p>
-                <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  {step.step === 1
-                    ? "· 甲床较宽适合方圆甲型 · 甲面弧度偏平，打磨力度均匀 · 留 1-2mm 白边自然实用"
-                    : "· 动作幅度大包边格外重要 · 推荐哑光封层低调质感 · 深色/灰色/裸色优先"}
+          {/* AI translation as bullet points */}
+          <div className="mt-3 space-y-1.5">
+            {step.aiTranslation
+              .split(/[。；;]/)
+              .filter((s) => s.trim())
+              .map((point, i) => (
+                <p key={i} className="text-sm text-muted-foreground leading-relaxed flex gap-2">
+                  <span className="text-brand shrink-0">·</span>
+                  <span>{point.trim()}</span>
                 </p>
-              </div>
-            )}
+              ))}
           </div>
+
+          {genderMode === "male" && (
+            <div
+              className="mt-3 rounded-xl px-3 py-2.5"
+              style={{ backgroundColor: "rgba(90,155,122,0.06)", borderLeft: "3px solid #5A9B7A" }}
+            >
+              <p className="text-[10px] tracking-widest mb-1" style={{ color: "#5A9B7A" }}>🧔‍♂️ 男士美甲建议</p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {step.step === 1
+                  ? "· 甲床较宽适合方圆甲型 · 甲面弧度偏平，打磨力度均匀 · 留 1-2mm 白边自然实用"
+                  : "· 动作幅度大包边格外重要 · 推荐哑光封层低调质感 · 深色/灰色/裸色优先"}
+              </p>
+            </div>
+          )}
 
           {/* Spacer */}
           <div className="flex-1" />
