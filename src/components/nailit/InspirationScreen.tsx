@@ -3,7 +3,7 @@ import { useState } from "react";
 import { PhoneFrame } from "./PhoneFrame";
 
 // 从 src/assets/inspiration/ 自动加载所有图片，文件名即款式名
-const imageModules = import.meta.glob<{ default: string }>("../../../assets/inspiration/*.{jpg,jpeg,png,webp}", { eager: true });
+const imageModules = import.meta.glob<{ default: string }>("../../assets/inspiration/*.{jpg,jpeg,png,webp}", { eager: true });
 
 interface InspirationVideo {
   img: string;
@@ -25,7 +25,7 @@ const VIDEOS: InspirationVideo[] = Object.entries(imageModules).map(([path, mod]
 // 添加默认数据以防文件夹为空
 if (VIDEOS.length === 0) {
   const fallbackImgs = Object.values(
-    import.meta.glob<{ default: string }>("../../../assets/insp-*.{jpg,jpeg,png,webp}", { eager: true })
+    import.meta.glob<{ default: string }>("../../assets/insp-*.{jpg,jpeg,png,webp}", { eager: true })
   );
   fallbackImgs.forEach((mod, i) => {
     const defaultTitles = ["温柔裸粉法式", "焦糖琥珀晕染", "透亮冰透", "清新花卉手绘", "猫眼磁石星空紫"];
