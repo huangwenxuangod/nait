@@ -338,6 +338,12 @@ Deno.serve(async (req) => {
         status: "failed",
       });
     }
+    logger.done("error", { error: message });
+    return jsonResponse(
+      { error: message },
+      { status: 500 },
+    );
+  }
 });
 
 async function buildTryOnPlanWithQwenTwoStage({
