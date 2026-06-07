@@ -1,3 +1,5 @@
+import { extractJsonString } from "./qwen.ts";
+
 const OPENAI_BASE_URL = Deno.env.get("OPENAI_BASE_URL") ?? "https://api.openai.com/v1";
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 const DEFAULT_MODEL = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini";
@@ -110,7 +112,7 @@ export async function createJsonResponse<T>({
 
   console.log(`[openai] createJsonResponse success | model=${model} | output_length=${outputText.length}`);
 
-  return JSON.parse(outputText) as T;
+  return JSON.parse(extractJsonString(outputText)) as T;
 }
 
 export async function createImageEdit({

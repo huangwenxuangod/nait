@@ -34,7 +34,8 @@ export async function createQwenJsonResponse<T>({
   console.log(`[qwen] createQwenJsonResponse start | model=${model} | image_inputs=${imageInputs.length} | required_keys=${requiredKeys.join(",")}`);
 
   const parseAndValidate = (raw: string): T => {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const cleaned = extractJsonString(raw);
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("Qwen returned non-object JSON");
     }
@@ -252,4 +253,24 @@ async function requestQwenText(
   console.log(`[qwen] request_success | model=${model} | output_length=${outputText.length}`);
 
   return outputText;
+}
+
+export function extractJsonString(raw: string): string {
+  let text = raw.trim();
+  
+  // 1. If it contains markdown code blocks, extract content inside
+  const markdownRegex = /```(?:json)?\s*([\s\S]*?)\s*```/i;
+  const match = text.match(markdownRegex);
+  if (match) {
+    text = match[1].trim();
+  }
+  
+  // 2. Find the first '{' and the last '}'
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    text = text.substring(firstBrace, lastBrace + 1);
+  }
+  
+  return text;
 }
