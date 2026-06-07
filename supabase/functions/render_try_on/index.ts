@@ -41,6 +41,14 @@ function prefixedError(code: string, message: string, extra?: unknown) {
   return new Error(`${code}: ${message}${suffix}`);
 }
 
+function encodeBase64Safe(bytes: Uint8Array, label: string) {
+  try {
+    return encodeBase64(bytes);
+  } catch (error) {
+    throw prefixedError("TRYON_BASE64_ENCODE_FAILED", `${label} base64 编码失败`, error);
+  }
+}
+
 Deno.serve(async (req) => {
   const logger = createRequestLogger("render_try_on");
   const preflight = handleOptions(req);
@@ -121,8 +129,16 @@ Deno.serve(async (req) => {
         handFileError ?? "empty file",
       );
     }
+    logger.log("step_4_download_hand_image_array_buffer_start");
     const handBytes = new Uint8Array(await handFile.arrayBuffer());
-    const handBase64 = encodeBase64(handBytes);
+    logger.log("step_4_download_hand_image_array_buffer_done", {
+      hand_bytes: handBytes.length,
+    });
+    logger.log("step_4_hand_base64_encode_start");
+    const handBase64 = encodeBase64Safe(handBytes, "hand_image");
+    logger.log("step_4_hand_base64_encode_done", {
+      hand_base64_length: handBase64.length,
+    });
     logger.log("step_4_download_hand_image_done", {
       mime_type: handFile.type || "image/jpeg",
       hand_bytes: handBytes.length,
@@ -163,8 +179,16 @@ Deno.serve(async (req) => {
           .from(BUCKET)
           .download(tutorialAsset.storage_path);
         if (!tutorialFileError && tutorialFile) {
+          logger.log("step_5_tutorial_array_buffer_start");
           const tutorialBytes = new Uint8Array(await tutorialFile.arrayBuffer());
-          tutorialBase64 = encodeBase64(tutorialBytes);
+          logger.log("step_5_tutorial_array_buffer_done", {
+            tutorial_bytes: tutorialBytes.length,
+          });
+          logger.log("step_5_tutorial_base64_encode_start");
+          tutorialBase64 = encodeBase64Safe(tutorialBytes, "tutorial_image");
+          logger.log("step_5_tutorial_base64_encode_done", {
+            tutorial_base64_length: tutorialBase64.length,
+          });
         }
       }
       logger.log("step_5_download_template_done", {

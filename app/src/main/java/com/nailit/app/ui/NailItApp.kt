@@ -20,6 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.nailit.app.core.catalog.TemplateCatalog
 import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.ui.screens.AdaptationScreen
 import com.nailit.app.ui.screens.BomScreen
@@ -39,7 +40,7 @@ private data class TopLevelDestination(
 @Composable
 fun NailItApp() {
     val navController = rememberNavController()
-    var selectedTutorialId by remember { mutableStateOf<String?>("aurora-cat") }
+    var selectedTutorialId by remember { mutableStateOf<String?>(TemplateCatalog.items.firstOrNull()?.id) }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 

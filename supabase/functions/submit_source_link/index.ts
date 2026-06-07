@@ -8,20 +8,36 @@ import type {
 } from "../_shared/types.ts";
 
 // Statically import JSON presets so they are fully bundled by esbuild
-import polarCatMatte from "./presets/polar-cat-matte.json" with { type: "json" };
-import frenchPolarCat from "./presets/french-polar-cat.json" with { type: "json" };
+import iceBlueButterGradient from "./presets/ice-blue-butter-gradient.json" with { type: "json" };
+import iceBearHandPaint from "./presets/ice-bear-hand-paint.json" with { type: "json" };
+import huanhuanNude from "./presets/huanhuan-nude.json" with { type: "json" };
+import darkMatte from "./presets/dark-matte.json" with { type: "json" };
+import cherryHailey from "./presets/cherry-hailey.json" with { type: "json" };
+import frenchFade from "./presets/french-fade.json" with { type: "json" };
+import paleYellowMatte from "./presets/pale-yellow-matte.json" with { type: "json" };
+import caramelPaintedGradient from "./presets/caramel-painted-gradient.json" with { type: "json" };
+import dustyPinkStarGradient from "./presets/dusty-pink-star-gradient.json" with { type: "json" };
+import pinkBlueGlassCatEye from "./presets/pink-blue-glass-cat-eye.json" with { type: "json" };
+import leopardCatEye from "./presets/leopard-cat-eye.json" with { type: "json" };
+import greenAppleHandPaint from "./presets/green-apple-hand-paint.json" with { type: "json" };
 import blushFireworkCat from "./presets/blush-firework-cat.json" with { type: "json" };
-import polarCatFrench from "./presets/polar-cat-french.json" with { type: "json" };
-import frenchGradientStruct from "./presets/french-gradient-struct.json" with { type: "json" };
-import pureYellow from "./presets/pure-yellow.json" with { type: "json" };
+import mistBlueCatEye from "./presets/pure-yellow.json" with { type: "json" };
 
 const PRESETS_MAP: Record<string, any> = {
-  "polar-cat-matte": polarCatMatte,
-  "french-polar-cat": frenchPolarCat,
+  "ice-blue-butter-gradient": iceBlueButterGradient,
+  "ice-bear-hand-paint": iceBearHandPaint,
+  "huanhuan-nude": huanhuanNude,
+  "dark-matte": darkMatte,
+  "cherry-hailey": cherryHailey,
+  "french-fade": frenchFade,
+  "pale-yellow-matte": paleYellowMatte,
+  "caramel-painted-gradient": caramelPaintedGradient,
+  "dusty-pink-star-gradient": dustyPinkStarGradient,
+  "pink-blue-glass-cat-eye": pinkBlueGlassCatEye,
+  "leopard-cat-eye": leopardCatEye,
+  "green-apple-hand-paint": greenAppleHandPaint,
   "blush-firework-cat": blushFireworkCat,
-  "polar-cat-french": polarCatFrench,
-  "french-gradient-struct": frenchGradientStruct,
-  "pure-yellow": pureYellow,
+  "mist-blue-cat-eye": mistBlueCatEye,
 };
 
 interface SourceParsePayload {

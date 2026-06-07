@@ -70,6 +70,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nailit.app.core.preview.HandPhotoRuntime
 import com.nailit.app.R
+import com.nailit.app.core.catalog.TemplateCatalog
+import com.nailit.app.core.catalog.TemplateItem
 import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.core.preview.NailSessionSnapshot
 import com.nailit.app.core.network.SupabaseManager
@@ -85,13 +87,6 @@ private val EntryTitle = Color(0xFF161211)
 private val EntryBody = Color(0xFF7E726A)
 private val EntryAccent = Color(0xFF2B1D1A)
 private val EntrySoft = Color(0xFFF1ECE6)
-
-private data class TemplateItem(
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val imageRes: Int,
-)
 
 @Composable
 fun HomeScreen(
@@ -114,81 +109,10 @@ fun HomeScreen(
     var sniffedUrl by remember { mutableStateOf("") }
     var isSniffing by remember { mutableStateOf(false) }
 
-    val templates = listOf(
-        TemplateItem(
-            id = "polar-cat-matte",
-            title = "极光猫眼渐变磨砂",
-            subtitle = "磨砂质感 + 侧边聚光",
-            imageRes = R.drawable.polar_cat_matte,
-        ),
-        TemplateItem(
-            id = "french-polar-cat",
-            title = "法式极光猫眼渐变",
-            subtitle = "法式微光 + 极光双色猫眼",
-            imageRes = R.drawable.french_polar_cat,
-        ),
-        TemplateItem(
-            id = "blush-firework-cat",
-            title = "腮红渐变烟花猫眼",
-            subtitle = "腮红打底 + 细闪烟花猫眼",
-            imageRes = R.drawable.blush_firework_cat,
-        ),
-        TemplateItem(
-            id = "polar-cat-french",
-            title = "极光猫眼渐变法式",
-            subtitle = "极光猫眼 + 经典法式边",
-            imageRes = R.drawable.polar_cat_french,
-        ),
-        TemplateItem(
-            id = "french-gradient-struct",
-            title = "法式渐变建构",
-            subtitle = "微晶建构 + 粉白优雅法式",
-            imageRes = R.drawable.french_gradient_struct,
-        ),
-        TemplateItem(
-            id = "pure-yellow",
-            title = "单色纯欲黄",
-            subtitle = "冰透柠檬黄 + 显白单色",
-            imageRes = R.drawable.pure_yellow,
-        ),
-        TemplateItem(
-            id = "milk-dot-french",
-            title = "奶白波点法式",
-            subtitle = "裸透底 + 奶白波点边",
-            imageRes = R.drawable.nail_showcase_01,
-        ),
-        TemplateItem(
-            id = "mist-blue-cat-eye",
-            title = "雾蓝银线猫眼",
-            subtitle = "灰蓝渐层 + 细银流线",
-            imageRes = R.drawable.nail_showcase_02,
-        ),
-        TemplateItem(
-            id = "star-dot-french",
-            title = "奶白星点法式",
-            subtitle = "星星贴片 + 细点法式",
-            imageRes = R.drawable.nail_showcase_03,
-        ),
-        TemplateItem(
-            id = "syrup-gloss",
-            title = "豆沙糖霜镜面",
-            subtitle = "半透豆沙 + 玻璃光泽",
-            imageRes = R.drawable.nail_showcase_04,
-        ),
-    )
+    val templates = TemplateCatalog.items
 
     fun matchUrlToTemplate(url: String): TemplateItem? {
-        if (url.contains("download-1") || url.contains("polar-cat-matte")) return templates.find { it.id == "polar-cat-matte" }
-        if (url.contains("download-2") || url.contains("french-polar-cat")) return templates.find { it.id == "french-polar-cat" }
-        if (url.contains("download-3") || url.contains("blush-firework-cat")) return templates.find { it.id == "blush-firework-cat" }
-        if (url.contains("download-4") || url.contains("polar-cat-french")) return templates.find { it.id == "polar-cat-french" }
-        if (url.contains("download-5") || url.contains("french-gradient-struct")) return templates.find { it.id == "french-gradient-struct" }
-        if (url.contains("download-0") || url.contains("pure-yellow") || url.contains("download.mp4")) return templates.find { it.id == "pure-yellow" }
-        if (url.contains("milk-dot-french")) return templates.find { it.id == "milk-dot-french" }
-        if (url.contains("mist-blue-cat-eye")) return templates.find { it.id == "mist-blue-cat-eye" }
-        if (url.contains("star-dot-french")) return templates.find { it.id == "star-dot-french" }
-        if (url.contains("syrup-gloss")) return templates.find { it.id == "syrup-gloss" }
-        return null
+        return TemplateCatalog.matchBySource(url)
     }
 
     val clipboardManager = LocalClipboardManager.current
@@ -400,12 +324,7 @@ fun HomeScreen(
         }
     }
 
-    val inspirationPreview = listOf(
-        templates[0],
-        templates[1],
-        templates[6],
-        templates[8],
-    )
+    val inspirationPreview = TemplateCatalog.inspirationPreviewIds.mapNotNull(TemplateCatalog::findById)
 
     Scaffold(containerColor = EntryBg) { padding ->
         Column(
@@ -886,7 +805,7 @@ fun HomeScreen(
                                     Button(
                                         onClick = {
                                             showSniffedDialog = false
-                                            val targetTemplateId = sniffedTemplate?.id ?: "aurora-cat"
+                                            val targetTemplateId = sniffedTemplate?.id ?: TemplateCatalog.items.first().id
                                             startDirectSop(sniffedUrl, targetTemplateId)
                                         },
                                         modifier = Modifier
@@ -1053,31 +972,14 @@ private fun getInstallId(context: Context): String {
 }
 
 private suspend fun uploadPresetTemplateIfNeeded(
-    context: Context,
     repository: SupabaseFunctionRepository,
     remoteSessionId: String,
     template: TemplateItem,
 ) {
-    val upload = repository.prepareAssetUpload(
-        sessionId = remoteSessionId,
-        assetType = "tutorial_frame",
-        mimeType = "image/jpeg",
-    )
-    val uploadPath = upload.storage_path ?: return
-    val assetId = upload.asset_id ?: return
-    val bytes = templateBitmapBytes(context, template.imageRes) ?: return
-    SupabaseManager.uploadHandPhotoToPath(bytes, uploadPath)
     repository.confirmAssetUpload(
         sessionId = remoteSessionId,
-        assetId = assetId,
+        assetId = UUID.randomUUID().toString(),
         assetType = "tutorial_frame",
-        storagePath = uploadPath,
+        storagePath = template.storagePath,
     )
-}
-
-private fun templateBitmapBytes(context: Context, imageRes: Int): ByteArray? {
-    val bitmap = BitmapFactory.decodeResource(context.resources, imageRes) ?: return null
-    val output = ByteArrayOutputStream()
-    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, output)
-    return output.toByteArray()
 }

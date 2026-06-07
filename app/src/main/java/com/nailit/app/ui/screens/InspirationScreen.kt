@@ -33,37 +33,19 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nailit.app.R
+import com.nailit.app.core.catalog.TemplateCatalog
 
 private val InspirationBg = Color(0xFFF8F4F0)
 private val InspirationText = Color(0xFF161211)
 private val InspirationMuted = Color(0xFF7E726A)
 private val InspirationCard = Color(0xFFFFFFFF)
 
-private data class InspirationItem(
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val imageRes: Int,
-)
-
 @Composable
 fun InspirationScreen(
     selectedId: String?,
     onSelectId: (String) -> Unit,
 ) {
-    val items = listOf(
-        InspirationItem("polar-cat-matte", "极光猫眼渐变磨砂", "磨砂质感 + 侧边聚光", R.drawable.polar_cat_matte),
-        InspirationItem("french-polar-cat", "法式极光猫眼渐变", "法式微光 + 极光双色猫眼", R.drawable.french_polar_cat),
-        InspirationItem("blush-firework-cat", "腮红渐变烟花猫眼", "腮红打底 + 细闪烟花猫眼", R.drawable.blush_firework_cat),
-        InspirationItem("polar-cat-french", "极光猫眼渐变法式", "极光猫眼 + 经典法式边", R.drawable.polar_cat_french),
-        InspirationItem("french-gradient-struct", "法式渐变建构", "微晶建构 + 粉白优雅法式", R.drawable.french_gradient_struct),
-        InspirationItem("pure-yellow", "单色纯欲黄", "冰透柠檬黄 + 显白单色", R.drawable.pure_yellow),
-        InspirationItem("milk-dot-french", "奶白波点法式", "裸透底 + 奶白波点边", R.drawable.nail_showcase_01),
-        InspirationItem("mist-blue-cat-eye", "雾蓝银线猫眼", "灰蓝渐层 + 细银流线", R.drawable.nail_showcase_02),
-        InspirationItem("star-dot-french", "奶白星点法式", "星星贴片 + 细点法式", R.drawable.nail_showcase_03),
-        InspirationItem("syrup-gloss", "豆沙糖霜镜面", "半透豆沙 + 玻璃光泽", R.drawable.nail_showcase_04),
-    )
+    val items = TemplateCatalog.items
 
     Column(
         modifier = Modifier
