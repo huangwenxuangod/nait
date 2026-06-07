@@ -36,7 +36,7 @@ function prefixedError(code: string, message: string, extra?: unknown) {
   return new Error(`${code}: ${message}${suffix}`);
 }
 
-Deno.serve(async (req) => {
+const handler = async (req: Request) => {
   const logger = createRequestLogger("render_try_on");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -386,13 +386,11 @@ Deno.serve(async (req) => {
         status: "failed",
       });
     }
-    logger.done("error", { error: message });
-    return jsonResponse(
-      { error: message },
-      { status: 500 },
-    );
-  }
-});
+};
+
+export default handler;
+
+Deno.serve(handler);
 
 function buildRenderPrompt(styleName: string, parseJson: Record<string, unknown>) {
   const tags = Array.isArray(parseJson?.style_tags) ? parseJson.style_tags.join("、") : "";

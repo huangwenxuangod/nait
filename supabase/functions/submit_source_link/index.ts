@@ -57,7 +57,7 @@ const DEFAULT_PARSE: Omit<SourceParsePayload, "source_url" | "note"> = {
   ],
 };
 
-Deno.serve(async (req) => {
+const handler = async (req: Request) => {
   const logger = createRequestLogger("submit_source_link");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -185,16 +185,11 @@ Deno.serve(async (req) => {
       returned_status: "source_parsing",
     });
     return jsonResponse(response);
-  } catch (error) {
-    logger.error("request_failed", { error: stringifyError(error) });
-    logger.done("error", { error: stringifyError(error) });
-    const message = stringifyError(error);
-    return jsonResponse(
-      { error: message },
-      { status: 500 },
-    );
-  }
-});
+};
+
+export default handler;
+
+Deno.serve(handler);
 
 function buildLocalFallbackParse(sourceUrl: string): SourceParsePayload {
   const text = sourceUrl.toLowerCase();

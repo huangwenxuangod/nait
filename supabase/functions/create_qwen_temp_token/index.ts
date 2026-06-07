@@ -10,7 +10,7 @@ const websocketBaseUrl = REGION === "beijing"
   : "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime";
 const websocketUrl = `${websocketBaseUrl}?model=${encodeURIComponent(MODEL)}`;
 
-Deno.serve(async (req) => {
+const handler = async (req: Request) => {
   const logger = createRequestLogger("create_qwen_temp_token");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -27,17 +27,8 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "DASHSCOPE_API_KEY missing" }, { status: 500 });
   }
 
-  logger.done("ok", {
-    websocket_url: websocketUrl,
-    model: MODEL,
-  });
-  return jsonResponse({
-    // Temporary token flow was causing handshake mismatch for realtime.
-    // For this MVP path we return the actual API key so the Android client
-    // can follow the official websocket auth shape directly.
-    token: DASHSCOPE_API_KEY,
-    websocket_url: websocketUrl,
-    model: MODEL,
-    expires_at: null,
-  });
-});
+};
+
+export default handler;
+
+Deno.serve(handler);

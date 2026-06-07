@@ -14,7 +14,7 @@ function extensionForMimeType(mimeType: string) {
   return "jpg";
 }
 
-Deno.serve(async (req) => {
+const handler = async (req: Request) => {
   const logger = createRequestLogger("prepare_asset_upload");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -67,19 +67,8 @@ Deno.serve(async (req) => {
       bucket: BUCKET,
     };
 
-    logger.done("ok", {
-      asset_id: assetId,
-      storage_path: storagePath,
-      bucket: BUCKET,
-    });
-    return jsonResponse(response);
-  } catch (error) {
-    logger.error("request_failed", { error: stringifyError(error) });
-    logger.done("error", { error: stringifyError(error) });
-    const message = stringifyError(error);
-    return jsonResponse(
-      { error: message },
-      { status: 500 },
-    );
-  }
-});
+};
+
+export default handler;
+
+Deno.serve(handler);
