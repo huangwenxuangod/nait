@@ -3,6 +3,7 @@ const QWEN_BASE_URL =
 const QWEN_API_KEY =
   Deno.env.get("QWEN_API_KEY") ?? Deno.env.get("DASHSCOPE_API_KEY") ?? "";
 const QWEN_TEXT_MODEL = Deno.env.get("QWEN_TEXT_MODEL") ?? "qwen3.7";
+const QWEN_VL_MODEL = Deno.env.get("QWEN_VL_MODEL") ?? "qwen2.5-vl-72b-instruct";
 
 export function hasQwenConfig() {
   return QWEN_API_KEY.trim().length > 0;
@@ -76,7 +77,63 @@ export async function createQwenJsonResponse<T>({
   }
 }
 
+export async function createQwenVisionAnalysis({
+  system,
+  user,
+  model = QWEN_VL_MODEL,
+  imageInputs = [],
+}: {
+  system: string;
+  user: string;
+  model?: string;
+  imageInputs?: Array<{
+    imageBase64: string;
+    mimeType?: string;
+  }>;
+}): Promise<string> {
+  if (!hasQwenConfig()) {
+    throw new Error("Missing QWEN_API_KEY/DASHSCOPE_API_KEY");
+  }
+
+  console.log(`[qwen] createQwenVisionAnalysis start | model=${model} | image_inputs=${imageInputs.length}`);
+  const output = await requestQwenText(system, user, model, imageInputs);
+  console.log(`[qwen] createQwenVisionAnalysis success | model=${model} | output_length=${output.length}`);
+  return output;
+}
+
+export async function createQwenStructuredFromText<T>({
+  system,
+  user,
+  model = QWEN_TEXT_MODEL,
+  requiredKeys = [],
+  validate,
+}: {
+  system: string;
+  user: string;
+  model?: string;
+  requiredKeys?: string[];
+  validate?: (payload: unknown) => string | null;
+}): Promise<T> {
+  return createQwenJsonResponse<T>({
+    system,
+    user,
+    model,
+    requiredKeys,
+    validate,
+    imageInputs: [],
+  });
+}
+
 async function requestQwenJsonText(
+  system: string,
+  user: string,
+  model: string,
+  imageInputs?: Array<{ imageBase64: string; mimeType?: string }>,
+): Promise<string> {
+  return requestQwenText(system, user, model, imageInputs);
+}
+
+async function requestQwenText(
   system: string,
   user: string,
   model: string,
@@ -147,9 +204,6 @@ async function requestQwenJsonText(
           { role: "system", content: system },
           { role: "user", content: userContent },
         ],
-        response_format: {
-          type: "json_object",
-        },
       };
 
   const response = await fetch(endpoint, {

@@ -3,7 +3,11 @@ import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { getAdminClient } from "../_shared/client.ts";
 import { createRequestLogger, stringifyError } from "../_shared/logger.ts";
 import { createImageEdit, createJsonResponse, hasOpenAiConfig } from "../_shared/openai.ts";
-import { createQwenJsonResponse, hasQwenConfig } from "../_shared/qwen.ts";
+import {
+  createQwenStructuredFromText,
+  createQwenVisionAnalysis,
+  hasQwenConfig,
+} from "../_shared/qwen.ts";
 import type {
   RenderTryOnRequest,
   RenderTryOnResponse,
@@ -155,28 +159,14 @@ Deno.serve(async (req) => {
     });
     let resultJson: TryOnPayload;
     if (hasQwenConfig()) {
-      resultJson = await createQwenJsonResponse<TryOnPayload>({
-        model: "qwen3.7-plus", // 👈 强行指定使用最新视觉大模型 qwen3.7-plus，防止被服务器环境变量覆盖！
-        system:
-          "你是一个电商级美甲试戴规划器。你会同时看到模板图和用户手图。你的任务是先分析模板款式在每根手指上的设计分布，再结合用户手图的手指方向与甲面位置，输出可直接给图像编辑模型使用的高精度中文 JSON。必须强调：只修改甲面，不修改肤色、手势、背景和光线。",
-        user: JSON.stringify({
-          style_name: styleName,
-          source_url: session?.source_url ?? "",
-          parse_json: parseJson,
-          nail_position_hints: body.nail_position_hints ?? [],
-        }),
-        requiredKeys: [
-          "fit_summary",
-          "tone_observation",
-          "highlight_points",
-          "risk_points",
-          "render_variants",
-          "nail_layout_summary",
-          "finger_design_map",
-          "render_prompt",
-          "note",
-        ],
-        imageInputs: listImageInputs(tutorialBase64, handBase64),
+      resultJson = await buildTryOnPlanWithQwenTwoStage({
+        styleName,
+        sourceUrl: session?.source_url ?? "",
+        parseJson,
+        nailPositionHints: body.nail_position_hints ?? [],
+        tutorialBase64,
+        handBase64,
+        logger,
       }).catch((error) => {
         console.warn("[render_try_on] Qwen planning failed after retries. Falling back to local preset prompt:", error);
         return {
@@ -198,7 +188,7 @@ Deno.serve(async (req) => {
         };
       });
       logger.log("step_6_plan_prompt_done", {
-        planner: "qwen",
+        planner: "qwen_two_stage",
         variant_count: resultJson.render_variants?.length ?? 0,
       });
     } else if (hasOpenAiConfig()) {
@@ -420,6 +410,89 @@ function buildRenderPrompt(styleName: string, parseJson: Record<string, unknown>
     "生成效果要像电商试戴图，甲面贴合、边缘自然、反光克制、不要假手假甲。",
     "禁止新增戒指、手链、贴纸、水印、文字、额外手指或额外手部。",
   ].filter(Boolean).join(" ");
+}
+
+async function buildTryOnPlanWithQwenTwoStage({
+  styleName,
+  sourceUrl,
+  parseJson,
+  nailPositionHints,
+  tutorialBase64,
+  handBase64,
+  logger,
+}: {
+  styleName: string;
+  sourceUrl: string;
+  parseJson: Record<string, unknown>;
+  nailPositionHints: Array<{
+    finger: string;
+    center_x: number;
+    center_y: number;
+    width_ratio: number;
+    height_ratio: number;
+    angle_deg: number;
+  }>;
+  tutorialBase64: string;
+  handBase64: string;
+  logger: ReturnType<typeof createRequestLogger>;
+}): Promise<TryOnPayload> {
+  logger.log("step_6a_vision_analysis_start");
+  const visionAnalysis = await createQwenVisionAnalysis({
+    system:
+      "你是电商级美甲视觉分析助手。你会同时看到模板图和用户手图。请先识别模板图的配色、法式边、猫眼高光、装饰分布，并结合用户手图判断每根手指甲面的大致适配方式。只输出中文分析文本，不要输出 JSON，不要寒暄。",
+    user: [
+      `款式名称：${styleName}`,
+      sourceUrl ? `来源链接：${sourceUrl}` : "",
+      `已有解析：${JSON.stringify(parseJson)}`,
+      `甲面位置提示：${formatNailHints(nailPositionHints)}`,
+      "请依次输出：1. 款式总结 2. 每根手指建议设计 3. 生图约束 4. 风险点",
+    ].filter(Boolean).join("\n"),
+    imageInputs: listImageInputs(tutorialBase64, handBase64),
+  });
+  logger.log("step_6a_vision_analysis_done", {
+    analysis_length: visionAnalysis.length,
+    analysis_preview: visionAnalysis.slice(0, 180),
+  });
+
+  logger.log("step_6b_text_to_json_start");
+  const result = await createQwenStructuredFromText<TryOnPayload>({
+    system:
+      "你是一个美甲试戴 JSON 结构化助手。你会收到上一步的视觉分析文本。你的任务是把它压成严格 JSON 对象，只输出 JSON，不要解释，不要 markdown，不要多余文字。",
+    user: JSON.stringify({
+      style_name: styleName,
+      source_url: sourceUrl,
+      parse_json: parseJson,
+      nail_position_hints: nailPositionHints,
+      vision_analysis: visionAnalysis,
+      output_requirements: {
+        fit_summary: "一句总结这款是否适合用户",
+        tone_observation: "一句色调建议",
+        highlight_points: "数组，列出亮点",
+        risk_points: "数组，列出风险点",
+        render_variants: "数组，列出建议微调方向",
+        nail_layout_summary: "一句概述每根手指整体分布",
+        finger_design_map: "数组，每项包含 finger design placement",
+        render_prompt: "给图像编辑模型的中文提示词",
+        note: "补充说明",
+      },
+    }),
+    requiredKeys: [
+      "fit_summary",
+      "tone_observation",
+      "highlight_points",
+      "risk_points",
+      "render_variants",
+      "nail_layout_summary",
+      "finger_design_map",
+      "render_prompt",
+      "note",
+    ],
+  });
+  logger.log("step_6b_text_to_json_done", {
+    variant_count: result.render_variants?.length ?? 0,
+    finger_design_count: result.finger_design_map?.length ?? 0,
+  });
+  return result;
 }
 
 function listImageInputs(tutorialBase64: string, handBase64: string) {
