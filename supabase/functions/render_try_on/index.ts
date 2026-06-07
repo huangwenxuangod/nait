@@ -38,7 +38,7 @@ function prefixedError(code: string, message: string, extra?: unknown) {
   return new Error(`${code}: ${message}${suffix}`);
 }
 
-const handler = async (req: Request) => {
+Deno.serve(async (req) => {
   const logger = createRequestLogger("render_try_on");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -338,11 +338,7 @@ const handler = async (req: Request) => {
         status: "failed",
       });
     }
-};
-
-export default handler;
-
-Deno.serve(handler);
+});
 
 async function buildTryOnPlanWithQwenTwoStage({
   styleName,

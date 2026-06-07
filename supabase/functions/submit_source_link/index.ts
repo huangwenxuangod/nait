@@ -57,7 +57,7 @@ const DEFAULT_PARSE: Omit<SourceParsePayload, "source_url" | "note"> = {
   ],
 };
 
-const handler = async (req: Request) => {
+Deno.serve(async (req) => {
   const logger = createRequestLogger("submit_source_link");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -185,11 +185,7 @@ const handler = async (req: Request) => {
       returned_status: "source_parsing",
     });
     return jsonResponse(response);
-};
-
-export default handler;
-
-Deno.serve(handler);
+});
 
 function buildLocalFallbackParse(sourceUrl: string): SourceParsePayload {
   const text = sourceUrl.toLowerCase();

@@ -24,7 +24,7 @@ interface ExecutionPackagePayload {
   }>;
 }
 
-const handler = async (req: Request) => {
+Deno.serve(async (req) => {
   const logger = createRequestLogger("generate_execution_package");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -171,8 +171,11 @@ const handler = async (req: Request) => {
     return jsonResponse(response);
   } catch (error) {
     logger.error("request_failed", { error: stringifyError(error) });
-};
-
-export default handler;
-
-Deno.serve(handler);
+    logger.done("error", { error: stringifyError(error) });
+    const message = stringifyError(error);
+    return jsonResponse(
+      { error: message },
+      { status: 500 },
+    );
+  }
+});

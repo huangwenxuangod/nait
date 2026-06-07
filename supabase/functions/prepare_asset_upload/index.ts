@@ -14,7 +14,7 @@ function extensionForMimeType(mimeType: string) {
   return "jpg";
 }
 
-const handler = async (req: Request) => {
+Deno.serve(async (req) => {
   const logger = createRequestLogger("prepare_asset_upload");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -60,15 +60,25 @@ const handler = async (req: Request) => {
       : "tutorials";
 
     const storagePath = `${folder}/${session.install_id}/${body.session_id}/${assetId}.${ext}`;
-
     const response: PrepareAssetUploadResponse = {
       asset_id: assetId,
       storage_path: storagePath,
       bucket: BUCKET,
     };
 
-};
-
-export default handler;
-
-Deno.serve(handler);
+    logger.done("ok", {
+      asset_id: assetId,
+      storage_path: storagePath,
+      bucket: BUCKET,
+    });
+    return jsonResponse(response);
+  } catch (error) {
+    logger.error("request_failed", { error: stringifyError(error) });
+    logger.done("error", { error: stringifyError(error) });
+    const message = stringifyError(error);
+    return jsonResponse(
+      { error: message },
+      { status: 500 },
+    );
+  }
+});

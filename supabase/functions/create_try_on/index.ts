@@ -6,7 +6,7 @@ import type {
   CreateTryOnResponse,
 } from "../_shared/types.ts";
 
-const handler = async (req: Request) => {
+Deno.serve(async (req) => {
   const logger = createRequestLogger("create_try_on");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -54,8 +54,4 @@ const handler = async (req: Request) => {
       { status: 500 },
     );
   }
-};
-
-export default handler;
-
-Deno.serve(handler);
+});

@@ -6,7 +6,7 @@ import type {
   ConfirmAssetUploadResponse,
 } from "../_shared/types.ts";
 
-const handler = async (req: Request) => {
+Deno.serve(async (req) => {
   const logger = createRequestLogger("confirm_asset_upload");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -49,8 +49,15 @@ const handler = async (req: Request) => {
     }
 
     const response: ConfirmAssetUploadResponse = { ok: true };
-};
-
-export default handler;
-
-Deno.serve(handler);
+    logger.done("ok", { ok: true });
+    return jsonResponse(response);
+  } catch (error) {
+    logger.error("request_failed", { error: stringifyError(error) });
+    logger.done("error", { error: stringifyError(error) });
+    const message = stringifyError(error);
+    return jsonResponse(
+      { error: message },
+      { status: 500 },
+    );
+  }
+});

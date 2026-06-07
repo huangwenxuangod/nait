@@ -1,5 +1,6 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { createRequestLogger } from "../_shared/logger.ts";
+import type { CreateRealtimeTokenResponse } from "../_shared/types.ts";
 
 const REGION = Deno.env.get("DASHSCOPE_REGION") ?? "beijing";
 const DASHSCOPE_API_KEY = Deno.env.get("DASHSCOPE_API_KEY") ?? "";
@@ -10,7 +11,7 @@ const websocketBaseUrl = REGION === "beijing"
   : "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime";
 const websocketUrl = `${websocketBaseUrl}?model=${encodeURIComponent(MODEL)}`;
 
-const handler = async (req: Request) => {
+Deno.serve(async (req) => {
   const logger = createRequestLogger("create_qwen_temp_token");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -27,8 +28,17 @@ const handler = async (req: Request) => {
     return jsonResponse({ error: "DASHSCOPE_API_KEY missing" }, { status: 500 });
   }
 
-};
+  const response: CreateRealtimeTokenResponse = {
+    token: DASHSCOPE_API_KEY,
+    expires_at: null,
+    websocket_url: websocketUrl,
+    model: MODEL,
+  };
 
-export default handler;
-
-Deno.serve(handler);
+  logger.done("ok", {
+    region: REGION,
+    model: MODEL,
+    websocket_url: websocketUrl,
+  });
+  return jsonResponse(response);
+});
