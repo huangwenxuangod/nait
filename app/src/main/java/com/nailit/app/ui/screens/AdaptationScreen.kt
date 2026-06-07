@@ -91,8 +91,7 @@ fun AdaptationScreen(
     var remoteTryOnBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isRendering by remember { mutableStateOf(false) }
     var debugErrorText by remember { mutableStateOf<String?>(null) }
-    var autoStartedForCurrentBitmap by remember { mutableStateOf(handBitmap != null) }
-    var hasAutoOpenedCapture by remember { mutableStateOf(false) }
+    var autoStartedForCurrentBitmap by remember { mutableStateOf(false) }
 
     fun startTryOn(bitmapOverride: Bitmap? = handBitmap) {
         val initialSession = NailSessionRuntime.current ?: activeSession
@@ -280,19 +279,6 @@ fun AdaptationScreen(
         }
     }
 
-    LaunchedEffect(activeSession?.sessionId, handBitmap) {
-        if (
-            handBitmap == null &&
-            !hasAutoOpenedCapture &&
-            remoteTryOnBitmap == null &&
-            !isRendering
-        ) {
-            hasAutoOpenedCapture = true
-            delay(180)
-            openCapture()
-        }
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -326,14 +312,6 @@ fun AdaptationScreen(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                text = "试戴结果",
-                style = MaterialTheme.typography.titleLarge.copy(
-                    color = TryOnText,
-                    fontWeight = FontWeight.Bold,
-                )
-            )
-
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -370,20 +348,38 @@ fun AdaptationScreen(
                             )
                         }
                     }
+                    handBitmap != null && debugErrorText == null -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                color = TryOnAccent,
+                                strokeWidth = 2.5.dp,
+                            )
+                            Text(
+                                text = "AI 正在试戴",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = TryOnText,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            )
+                        }
+                    }
                     handBitmap == null -> {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Text(
-                                text = "正在打开拍照",
+                                text = "正在等待手图",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     color = TryOnText,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                             )
                             Text(
-                                text = "对准手背，尽量拍全五指",
+                                text = "拍完会直接生成试戴结果",
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     color = TryOnMuted,
                                 )

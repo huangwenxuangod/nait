@@ -52,38 +52,6 @@ Deno.serve(async (req) => {
 
     const supabase = getAdminClient();
 
-    const { error: pendingError } = await supabase
-      .from("sessions")
-      .update({ status: "try_on_pending" })
-      .eq("id", body.session_id);
-
-    if (pendingError) {
-      throw prefixedError("TRYON_SESSION_STATUS_UPDATE_FAILED", "更新会话状态失败", pendingError);
-    }
-
-    // 👈 核心异步解耦：在后台默默运行慢生图逻辑，不阻塞 HTTP 响应
-    runTryOnInBackground(body, supabase);
-
-    const response: CreateTryOnResponse = {
-      session_id: body.session_id,
-      status: "try_on_pending",
-    };
-
-    return jsonResponse(response);
-  } catch (error) {
-    console.error("Function error:", error);
-    const message = stringifyError(error);
-    return jsonResponse(
-      { error: message },
-      { status: 500 },
-    );
-  }
-});
-
-async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
-  try {
-    console.log(`[create_try_on] Starting background try-on for session ${body.session_id}...`);
-    
     const { data: session, error: sessionError } = await supabase
       .from("sessions")
       .select("style_name, source_url")
@@ -126,7 +94,7 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
       throw prefixedError(
         "TRYON_HAND_ASSET_DOWNLOAD_FAILED",
         `下载手图失败，path=${handAsset.storage_path}`,
-        handFileError ?? "empty file"
+        handFileError ?? "empty file",
       );
     }
 
@@ -238,11 +206,11 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
     } else {
       resultJson = {
         fit_summary: "这款偏暖调，适合大多数黄皮，整体会更显干净。",
-        tone_observation: "建议保留透粉底色 and 柔和高光，不要把底色做得太冷。",
+        tone_observation: "建议保留透粉底色和柔和高光，不要把底色做得太冷。",
         highlight_points: ["通勤友好", "手部会显得更细长", "整体气质偏温柔"],
         risk_points: ["高闪过多会显得廉价", "法式边过宽会显手短"],
         render_variants: ["更暖一点", "更自然一点", "更透亮一点"],
-        nail_layout_summary: "模板图整体是通透浅底，局部有高光和法式/装饰变化。",
+        nail_layout_summary: "模板图整体是通透浅底，局部有高光和法式装饰变化。",
         finger_design_map: [
           { finger: "thumb", design: "通透浅底", placement: "满甲" },
           { finger: "index", design: "法式或高光装饰", placement: "甲尖与中轴" },
@@ -258,7 +226,7 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
     if (!hasOpenAiConfig()) {
       throw prefixedError(
         "TRYON_IMAGE_GENERATION_FAILED",
-        "云端未配置 OPENAI_API_KEY / 代理 Key，请在腾讯云服务器的 /root/supabase-docker/docker/.env 中配置并重启 supabase-edge-functions 容器！"
+        "云端未配置 OPENAI_API_KEY / 代理 Key，请在腾讯云服务器的 /root/supabase-docker/docker/.env 中配置并重启 functions 容器！",
       );
     }
 
@@ -267,7 +235,8 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
     const renderPromptText = resultJson?.render_prompt ?? renderPrompt;
 
     const imageBase64 = await createImageEdit({
-      prompt: `${renderPromptText}\n\n补充约束：${nailLayoutSummary}\n每根手指设计映射：${fingerDesignMap.map((item) => `${item?.finger ?? ""}:${item?.design ?? ""}(${item?.placement ?? ""})`).join("；")}。\n用户甲面位置提示：${formatNailHints(body.nail_position_hints ?? [])}。请优先把设计落在这些甲面位置附近，只修改对应甲面区域。`,
+      prompt:
+        `${renderPromptText}\n\n补充约束：${nailLayoutSummary}\n每根手指设计映射：${fingerDesignMap.map((item) => `${item?.finger ?? ""}:${item?.design ?? ""}(${item?.placement ?? ""})`).join("；")}。\n用户甲面位置提示：${formatNailHints(body.nail_position_hints ?? [])}。请优先把设计落在这些甲面位置附近，只修改对应甲面区域。`,
       imageBase64: handBase64,
       mimeType: handFile.type || "image/jpeg",
       fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
@@ -303,7 +272,7 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
       throw prefixedError(
         "TRYON_RESULT_UPLOAD_FAILED",
         `上传试戴结果失败，path=${tryOnStoragePath}`,
-        uploadError
+        uploadError,
       );
     }
 
@@ -330,15 +299,21 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
       throw prefixedError("TRYON_SESSION_READY_UPDATE_FAILED", "回写试戴完成状态失败", readyError);
     }
 
-    console.log(`[create_try_on] Background try-on for session ${body.session_id} completed successfully!`);
+    const response: CreateTryOnResponse = {
+      session_id: body.session_id,
+      status: "try_on_ready",
+    };
+
+    return jsonResponse(response);
   } catch (error) {
-    console.error(`[create_try_on] Background try-on failed:`, error);
-    await supabase
-      .from("sessions")
-      .update({ status: "try_on_failed" })
-      .eq("id", body.session_id);
+    console.error("Function error:", error);
+    const message = stringifyError(error);
+    return jsonResponse(
+      { error: message },
+      { status: 500 },
+    );
   }
-}
+});
 
 function buildRenderPrompt(styleName: string, parseJson: Record<string, unknown>) {
   const tags = Array.isArray(parseJson?.style_tags) ? parseJson.style_tags.join("、") : "";
@@ -382,7 +357,7 @@ function formatNailHints(
     width_ratio: number;
     height_ratio: number;
     angle_deg: number;
-  }>
+  }>,
 ) {
   if (!hints.length) return "none";
   return hints.map((hint) =>

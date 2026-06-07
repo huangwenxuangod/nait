@@ -67,6 +67,18 @@ data class CreateTryOnResponse(
 )
 
 @Serializable
+data class RenderTryOnRequest(
+    val session_id: String,
+    val nail_position_hints: List<NailPositionHint> = emptyList(),
+)
+
+@Serializable
+data class RenderTryOnResponse(
+    val session_id: String? = null,
+    val status: String? = null,
+)
+
+@Serializable
 data class NailPositionHint(
     val finger: String,
     val center_x: Float,

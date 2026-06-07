@@ -1,6 +1,8 @@
 package com.nailit.app.ui.screens
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -43,11 +45,16 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.text.style.TextAlign
 import android.util.Log
 import kotlinx.coroutines.delay
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nailit.app.core.preview.HandPhotoRuntime
 import com.nailit.app.R
 import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.core.preview.NailSessionSnapshot
@@ -235,9 +242,9 @@ fun HomeScreen(
         }
     }
 
-    val createSession = remember(context, repository, linkInput, isCreating, currentTemplate) {
-        {
-            if (isCreating) return@remember
+    val startTryOnFlow = remember(context, repository, linkInput, currentTemplate) {
+        { capturedBitmap: android.graphics.Bitmap ->
+            HandPhotoRuntime.currentBitmap = capturedBitmap
             scope.launch {
                 isCreating = true
                 statusText = null
@@ -308,6 +315,55 @@ fun HomeScreen(
 
                 isCreating = false
             }
+        }
+    }
+
+    val pickMediaLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri == null) {
+            statusText = "未选择手图。"
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        }.getOrNull()?.let(startTryOnFlow) ?: run {
+            statusText = "手图读取失败，请重试。"
+        }
+    }
+
+    val takePicturePreviewLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            startTryOnFlow(bitmap)
+        } else {
+            statusText = "未拍到手图，请重试。"
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            takePicturePreviewLauncher.launch(null)
+        } else {
+            pickMediaLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            )
+        }
+    }
+
+    fun openCaptureForTryOn() {
+        val hasCameraPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasCameraPermission) {
+            takePicturePreviewLauncher.launch(null)
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
@@ -429,7 +485,11 @@ fun HomeScreen(
             )
 
             Button(
-                onClick = createSession,
+                onClick = {
+                    if (!isCreating) {
+                        openCaptureForTryOn()
+                    }
+                },
                 enabled = !isCreating,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -554,7 +614,7 @@ fun HomeScreen(
                                         onClick = {
                                             showSniffedDialog = false
                                             linkInput = sniffedUrl
-                                            createSession()
+                                            openCaptureForTryOn()
                                         },
                                         modifier = Modifier
                                             .fillMaxWidth()

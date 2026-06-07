@@ -45,6 +45,9 @@ verify_jwt = false
 [functions.create_try_on]
 verify_jwt = false
 
+[functions.render_try_on]
+verify_jwt = false
+
 [functions.generate_execution_package]
 verify_jwt = false
 
