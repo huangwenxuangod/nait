@@ -130,22 +130,35 @@ async function requestQwenJsonText(
     }
   }
 
-  const response = await fetch(`${QWEN_BASE_URL.replace(/\/+$/, "")}/chat/completions`, {
+  const isResponsesEndpoint = QWEN_BASE_URL.endsWith("/responses") || model.startsWith("qwen3.7") || model.startsWith("qwen3.6");
+  const endpoint = isResponsesEndpoint
+    ? `${QWEN_BASE_URL.replace(/\/+$/, "").replace(/\/chat\/completions$/, "")}/responses`
+    : `${QWEN_BASE_URL.replace(/\/+$/, "")}/chat/completions`;
+
+  const requestBody = isResponsesEndpoint
+    ? {
+        model,
+        instructions: system,
+        input: userContent,
+      }
+    : {
+        model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userContent },
+        ],
+        response_format: {
+          type: "json_object",
+        },
+      };
+
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${QWEN_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userContent },
-      ],
-      response_format: {
-        type: "json_object",
-      },
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
@@ -155,9 +168,30 @@ async function requestQwenJsonText(
   }
 
   const data = await response.json();
-  const outputText = data?.choices?.[0]?.message?.content;
+  let outputText = "";
+
+  if (isResponsesEndpoint) {
+    if (data?.output_text) {
+      outputText = data.output_text;
+    } else if (Array.isArray(data?.output)) {
+      for (const item of data.output) {
+        if (item?.content && Array.isArray(item.content)) {
+          for (const part of item.content) {
+            if (part?.type === "output_text" && part?.text) {
+              outputText = part.text;
+              break;
+            }
+          }
+        }
+        if (outputText) break;
+      }
+    }
+  } else {
+    outputText = data?.choices?.[0]?.message?.content;
+  }
+
   if (typeof outputText !== "string" || outputText.trim().length === 0) {
-    console.error(`[qwen] empty_output | model=${model}`);
+    console.error(`[qwen] empty_output | model=${model} | response=${JSON.stringify(data)}`);
     throw new Error("Qwen returned no output text");
   }
 
