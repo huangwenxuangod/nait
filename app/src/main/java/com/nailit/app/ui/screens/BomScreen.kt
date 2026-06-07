@@ -23,13 +23,10 @@ import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.core.preview.NailSessionSnapshot
 import com.nailit.app.core.preview.SupabaseFunctionRepository
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,46 +36,93 @@ fun BomScreen(
     onContinue: () -> Unit
 ) {
     val repository = remember { SupabaseFunctionRepository() }
-    val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
-    
-    var isLoading by remember { mutableStateOf(sessionSnapshot != null && sessionSnapshot.bomJson == null) }
+    val runtimeSession = NailSessionRuntime.current ?: sessionSnapshot
+
+    var isLoading by remember { mutableStateOf(runtimeSession != null && runtimeSession.bomJson == null) }
+    var isGuidePreparing by remember { mutableStateOf(runtimeSession?.executionStatus == "guide_pending") }
+    var isGuideReady by remember { mutableStateOf(runtimeSession?.executionSteps?.isNotEmpty() == true) }
     var showDialog by remember { mutableStateOf(false) }
 
     // Checkbox state maps to handle dynamic list sizes smoothly
     var basicToolsChecked by remember { mutableStateOf(mapOf<String, Boolean>()) }
     var styleItemsChecked by remember { mutableStateOf(mapOf<String, Boolean>()) }
 
-    // Load BOM logic
-    LaunchedEffect(sessionSnapshot) {
-        if (sessionSnapshot == null) {
+    LaunchedEffect(runtimeSession?.sessionId) {
+        val session = NailSessionRuntime.current ?: sessionSnapshot
+        if (session == null) {
             isLoading = false
+            isGuidePreparing = false
             return@LaunchedEffect
         }
 
-        if (sessionSnapshot.bomJson != null) {
-            isLoading = false
+        if (session.executionStatus != "guide_pending" && session.executionSteps.isEmpty()) {
+            isGuidePreparing = true
+            NailSessionRuntime.current = session.copy(
+                executionStatus = "guide_pending",
+                executionError = null,
+            )
+
+            runCatching {
+                repository.generateExecutionPackage(session.sessionId)
+            }.onFailure { error ->
+                NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
+                    executionStatus = "guide_failed",
+                    executionError = error.message,
+                )
+                isGuidePreparing = false
+            }
+        } else {
+            isGuidePreparing = session.executionStatus == "guide_pending"
+            isGuideReady = session.executionSteps.isNotEmpty()
+        }
+    }
+
+    LaunchedEffect(runtimeSession?.sessionId, runtimeSession?.executionStatus) {
+        val session = NailSessionRuntime.current ?: sessionSnapshot ?: return@LaunchedEffect
+        if (session.executionSteps.isNotEmpty()) {
+            isGuidePreparing = false
+            isGuideReady = true
             return@LaunchedEffect
         }
 
-        isLoading = true
-        var fetched: JsonObject? = null
-        runCatching {
-            // Try up to 3 times to fetch (polling in case background AI is finishing up)
-            for (i in 1..3) {
-                fetched = repository.fetchBom(sessionSnapshot.sessionId)
-                if (fetched != null) break
+        if (session.executionStatus == "guide_pending") {
+            repeat(20) {
+                val executionPackage = repository.fetchExecutionPackage(session.sessionId)
+                if (executionPackage != null && executionPackage.steps.isNotEmpty()) {
+                    NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
+                        executionStatus = "guide_ready",
+                        estimatedTotalMinutes = executionPackage.estimated_total_minutes,
+                        currentStepIndex = 0,
+                        currentStepTitle = executionPackage.steps.firstOrNull()?.title,
+                        executionSteps = executionPackage.steps,
+                        executionError = null,
+                    )
+                    isGuidePreparing = false
+                    isGuideReady = true
+                    return@LaunchedEffect
+                }
                 delay(1000)
             }
+            isGuidePreparing = false
+        }
+    }
+
+    LaunchedEffect(runtimeSession?.sessionId) {
+        val session = NailSessionRuntime.current ?: sessionSnapshot
+        if (session == null) {
+            isLoading = false
+            return@LaunchedEffect
         }
 
+        val fetched = repository.fetchBom(session.sessionId)
         if (fetched != null) {
-            NailSessionRuntime.current = sessionSnapshot.copy(bomJson = fetched)
+            NailSessionRuntime.current = session.copy(bomJson = fetched)
         }
         isLoading = false
     }
 
-    val activeBom = sessionSnapshot?.bomJson
+    val activeBom = (NailSessionRuntime.current ?: sessionSnapshot)?.bomJson
 
     // Extract lists
     val basicTools = activeBom?.stringList("basic_tools")?.ifEmpty {
@@ -92,10 +136,14 @@ fun BomScreen(
     val substitutes = activeBom?.stringList("optional_substitutes") ?: emptyList()
     val warnings = activeBom?.stringList("warnings") ?: emptyList()
 
+    val allChecked = remember(basicToolsChecked, styleItemsChecked) {
+        basicToolsChecked.values.all { it } && styleItemsChecked.values.all { it }
+    }
+
     // Initialize/sync checkbox states
     LaunchedEffect(basicTools, styleItems) {
         basicToolsChecked = basicTools.associateWith { basicToolsChecked[it] ?: true }
-        styleItemsChecked = styleItems.associateWith { styleItemsChecked[it] ?: false }
+        styleItemsChecked = styleItems.associateWith { styleItemsChecked[it] ?: true }
     }
 
     if (showDialog) {
@@ -135,7 +183,7 @@ fun BomScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "智能 BOM 材料清单",
+                        "准备开始",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 2.sp
@@ -185,24 +233,70 @@ fun BomScreen(
                     // Header Slogan
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            "开工前材料点兵",
+                            "开工前检查一下材料",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         )
                         Text(
-                            "AI 已为您匹配了现有工具，并提供了专属色胶的平替方案",
+                            "勾完就能直接开始，AI 也会同时在后台整理你的专属步骤。",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                             )
                         )
                     }
 
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(0.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        border = BorderStroke(1.dp, Color(0xFFE9D8D0).copy(alpha = 0.6f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    "专属步骤整理",
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1A1412)
+                                    )
+                                )
+                                Text(
+                                    when {
+                                        isGuideReady -> "已整理完成，随时可以开始跟做"
+                                        isGuidePreparing -> "正在根据试戴款式生成你的步骤卡"
+                                        else -> "进入本页后自动开始整理"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
+                                )
+                            }
+                            if (isGuidePreparing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color(0xFF881337)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = if (isGuideReady) Color(0xFF16A34A) else Color.LightGray
+                                )
+                            }
+                        }
+                    }
+
                     // Section 1: Basic Tools
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            "1. 基础必备工具 (底胶/封层/烤灯)",
+                            "1. 基础工具",
                             style = MaterialTheme.typography.labelMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFC5A880)
@@ -251,7 +345,7 @@ fun BomScreen(
                     // Section 2: Exclusive Materials
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            "2. 本款专属材料 (色胶/磁铁)",
+                            "2. 本款材料",
                             style = MaterialTheme.typography.labelMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFC5A880)
@@ -370,19 +464,23 @@ fun BomScreen(
                 }
             }
 
-            // Next Step Button
             Button(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp),
                 onClick = onContinue,
+                enabled = allChecked && isGuideReady,
                 shape = RoundedCornerShape(0.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary
                 )
             ) {
                 Text(
-                    "进入沉浸式实操 SOP",
+                    when {
+                        !allChecked -> "先勾完材料"
+                        !isGuideReady -> "步骤整理中..."
+                        else -> "开始跟做"
+                    },
                     style = MaterialTheme.typography.labelLarge.copy(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 2.sp,

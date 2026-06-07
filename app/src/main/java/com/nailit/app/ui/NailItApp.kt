@@ -10,6 +10,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.nailit.app.core.preview.NailSessionRuntime
 import com.nailit.app.ui.screens.AdaptationScreen
+import com.nailit.app.ui.screens.BomScreen
 import com.nailit.app.ui.screens.FinishCaptureScreen
 import com.nailit.app.ui.screens.HomeScreen
 import com.nailit.app.ui.screens.ConversationScreen
@@ -36,6 +37,13 @@ fun NailItApp() {
         composable("adaptation") {
             AdaptationScreen(
                 selectedId = selectedTutorialId,
+                sessionSnapshot = NailSessionRuntime.current,
+                onBack = { navController.popBackStack() },
+                onContinue = { navController.navigate("prepare") }
+            )
+        }
+        composable("prepare") {
+            BomScreen(
                 sessionSnapshot = NailSessionRuntime.current,
                 onBack = { navController.popBackStack() },
                 onContinue = { navController.navigate("conversation") }

@@ -192,23 +192,14 @@ function createImageEditFormData({
   form.set("background", "auto");
   form.set("moderation", "auto");
 
-  const inputs = (imageInputs && imageInputs.length > 0) ? imageInputs : [
-    {
-      imageBase64: imageBase64,
-      mimeType: mimeType,
-      fileName: fileName,
-    }
-  ];
-
-  inputs.forEach((image, index) => {
-    form.append(
-      "image",
-      new Blob([Uint8Array.from(atob(image.imageBase64), (c) => c.charCodeAt(0))], {
-        type: image.mimeType ?? "image/jpeg",
-      }),
-      image.fileName ?? `image-${index + 1}.jpg`,
-    );
-  });
+  // 👈 严格单图：只发送手图（hand_photo）作为 image 参数，符合 OpenAI 官方 /images/edits 规范，防止多图导致中转代理挂起超时！
+  form.append(
+    "image",
+    new Blob([Uint8Array.from(atob(imageBase64), (c) => c.charCodeAt(0))], {
+      type: mimeType || "image/jpeg",
+    }),
+    fileName || "hand-photo.jpg",
+  );
   return form;
 }
 

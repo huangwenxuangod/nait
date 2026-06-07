@@ -89,6 +89,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 private val GuideBg = Color(0xFFF6F1EB)
 private val GuideText = Color(0xFF181311)
@@ -237,6 +238,27 @@ fun ConversationScreen(
     }
 
     val currentStep = steps.getOrNull(uiState.stepIndex)
+    var isTimerRunning by remember(currentStep?.id) { mutableStateOf(false) }
+    var timerSeconds by remember(currentStep?.id) {
+        mutableStateOf(currentStep?.duration_sec ?: 0)
+    }
+
+    LaunchedEffect(currentStep?.id) {
+        isTimerRunning = false
+        timerSeconds = currentStep?.duration_sec ?: 0
+    }
+
+    LaunchedEffect(isTimerRunning, currentStep?.id, timerSeconds) {
+        if (!isTimerRunning) return@LaunchedEffect
+        while (isActive && isTimerRunning && timerSeconds > 0) {
+            delay(1000)
+            timerSeconds -= 1
+        }
+        if (timerSeconds <= 0) {
+            isTimerRunning = false
+        }
+    }
+
     val handBitmap = liveFrameBitmap ?: HandPhotoRuntime.currentBitmap
 
     Scaffold(
@@ -244,7 +266,7 @@ fun ConversationScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "视频带做",
+                        text = "跟做中",
                         style = MaterialTheme.typography.titleLarge.copy(
                             color = GuideText,
                             fontWeight = FontWeight.Bold,
@@ -391,11 +413,56 @@ fun ConversationScreen(
 
                 if (activeSession?.executionStatus == "guide_pending") {
                     Text(
-                        text = "流程正在后台整理，你可以先跟着做。",
+                        text = "步骤正在后台整理，先准备当前这一步。",
                         style = MaterialTheme.typography.bodyMedium.copy(
                             color = Color.White.copy(alpha = 0.72f),
                         )
                     )
+                }
+
+                if ((currentStep?.needs_timer == true) || (currentStep?.duration_sec ?: 0) >= 30) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.White.copy(alpha = 0.08f))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "照灯倒计时",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            )
+                            Text(
+                                text = if (isTimerRunning) "剩余 ${timerSeconds}s" else "需要时再开始",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = Color.White.copy(alpha = 0.72f),
+                                )
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                if (isTimerRunning) {
+                                    isTimerRunning = false
+                                } else {
+                                    timerSeconds = currentStep?.duration_sec ?: 60
+                                    isTimerRunning = true
+                                }
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = GuideAccent,
+                            ),
+                        ) {
+                            Text(if (isTimerRunning) "暂停" else "开始")
+                        }
+                    }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
