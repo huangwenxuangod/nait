@@ -75,6 +75,7 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
   try {
     console.log(`[render_try_on] Starting background try-on for session ${body.session_id}...`);
     
+    console.log(`[render_try_on] [Step 1/7] Reading session and parse records...`);
     const { data: session, error: sessionError } = await supabase
       .from("sessions")
       .select("style_name, source_url")
@@ -93,6 +94,7 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
       throw prefixedError("TRYON_PARSE_READ_FAILED", "读取款式解析结果失败", parseError);
     }
 
+    console.log(`[render_try_on] [Step 2/7] Querying and downloading hand photo...`);
     const { data: handAsset, error: handAssetError } = await supabase
       .from("session_assets")
       .select("storage_path")
@@ -109,6 +111,7 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
       throw prefixedError("TRYON_HAND_ASSET_MISSING", "缺少 hand_photo 资产");
     }
 
+    console.log(`[render_try_on] Downloading hand photo from storage: ${handAsset.storage_path}...`);
     const { data: handFile, error: handFileError } = await supabase.storage
       .from(BUCKET)
       .download(handAsset.storage_path);
@@ -134,6 +137,7 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
     const handBase64 = btoa(String.fromCharCode(...handBytes));
     let tutorialBase64 = "";
     if (tutorialAsset?.storage_path) {
+      console.log(`[render_try_on] Downloading tutorial reference image: ${tutorialAsset.storage_path}...`);
       const { data: tutorialFile, error: tutorialFileError } = await supabase.storage
         .from(BUCKET)
         .download(tutorialAsset.storage_path);
@@ -149,10 +153,12 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
 
     let resultJson: TryOnPayload;
 
+    console.log(`[render_try_on] [Step 3/7] Calling AI model for try-on planning...`);
     if (hasQwenConfig()) {
+      console.log(`[render_try_on] Qwen config detected. Calling official DashScope Beijing endpoint (qwen2.5-vl-72b-instruct)...`);
       resultJson = await createQwenJsonResponse<TryOnPayload>({
         system:
-          "你是一个电商级美甲试戴规划器。你会同时看到模板图和用户手图。你的任务是先分析模板款式在每根手指上的设计分布，再结合用户手图的手指方向与甲面位置，输出可直接给图像编辑模型使用的高精度中文 JSON。必须强调：只修改甲面，不修改肤色、手势、背景 and 光线。",
+          "你是一个电商级美甲试戴规划器。你会同时看到模板图 and 用户手图。你的任务是先分析模板款式在每根手指上的设计分布，再结合用户手图的手指方向与甲面位置，输出可直接给图像编辑模型使用的高精度中文 JSON。必须强调：只修改甲面，不修改肤色、手势、背景 and 光线。",
         user: JSON.stringify({
           style_name: styleName,
           source_url: session?.source_url ?? "",
@@ -174,10 +180,12 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
       }).catch((error) => {
         throw prefixedError("TRYON_PROMPT_PLAN_FAILED", "Qwen 生成试戴 prompt 失败", error);
       });
+      console.log(`[render_try_on] Qwen planning completed successfully!`);
     } else if (hasOpenAiConfig()) {
+      console.log(`[render_try_on] OpenAI config detected. Calling OpenAI chat/completions...`);
       resultJson = await createJsonResponse<TryOnPayload>({
         system:
-          "你是一个电商级美甲试戴规划器。你会同时看到模板图和用户手图。你的任务是先分析模板款式在每根手指上的设计分布，再结合用户手图的手指方向与甲面位置，输出可直接给图像编辑模型使用的高精度中文 JSON。必须强调：只修改甲面，不修改肤色、手势、背景 and 光线。",
+          "你是一个电商级美甲试戴规划器。你会同时看到模板图 and 用户手图。你的任务是先分析模板款式在每根手指上的设计分布，再结合用户手图的手指方向与甲面位置，输出可直接给图像编辑模型使用的高精度中文 JSON。必须强调：只修改甲面，不修改肤色、手势、背景 and 光线。",
         user: JSON.stringify({
           style_name: styleName,
           source_url: session?.source_url ?? "",
@@ -226,7 +234,9 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
       }).catch((error) => {
         throw prefixedError("TRYON_PROMPT_PLAN_FAILED", "OpenAI 生成试戴 prompt 失败", error);
       });
+      console.log(`[render_try_on] OpenAI planning completed successfully!`);
     } else {
+      console.log(`[render_try_on] No AI config detected. Using fallback local templates.`);
       resultJson = {
         fit_summary: "这款偏暖调，适合大多数黄皮，整体会更显干净。",
         tone_observation: "建议保留透粉底色 and 柔和高光，不要把底色做得太冷。",
@@ -257,31 +267,21 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
     const nailLayoutSummary = resultJson?.nail_layout_summary ?? "";
     const renderPromptText = resultJson?.render_prompt ?? renderPrompt;
 
+    console.log(`[render_try_on] [Step 4/7] Calling OpenAI image edit API via yunwu.ai (gpt-image-2)...`);
+    const editPrompt = `${renderPromptText}\n\n补充约束：${nailLayoutSummary}\n每根手指设计映射：${fingerDesignMap.map((item) => `${item?.finger ?? ""}:${item?.design ?? ""}(${item?.placement ?? ""})`).join("；")}。\n用户甲面位置提示：${formatNailHints(body.nail_position_hints ?? [])}。请优先把设计落在这些甲面位置附近，只修改对应甲面区域。`;
+    console.log(`[render_try_on] Image Edit Prompt: "${editPrompt}"`);
+    
     const imageBase64 = await createImageEdit({
-      prompt: `${renderPromptText}\n\n补充约束：${nailLayoutSummary}\n每根手指设计映射：${fingerDesignMap.map((item) => `${item?.finger ?? ""}:${item?.design ?? ""}(${item?.placement ?? ""})`).join("；")}。\n用户甲面位置提示：${formatNailHints(body.nail_position_hints ?? [])}。请优先把设计落在这些甲面位置附近，只修改对应甲面区域。`,
+      prompt: editPrompt,
       imageBase64: handBase64,
       mimeType: handFile.type || "image/jpeg",
       fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
-      imageInputs: [
-        {
-          imageBase64: handBase64,
-          mimeType: handFile.type || "image/jpeg",
-          fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
-        },
-        ...(
-          tutorialBase64
-            ? [{
-                imageBase64: tutorialBase64,
-                mimeType: "image/jpeg",
-                fileName: "tutorial-reference.jpg",
-              }]
-            : []
-        ),
-      ],
     }).catch((error) => {
       throw prefixedError("TRYON_IMAGE_GENERATION_FAILED", "生成试戴图片失败", error);
     });
+    console.log(`[render_try_on] OpenAI image edit completed successfully! Received base64 length: ${imageBase64.length}`);
 
+    console.log(`[render_try_on] [Step 5/7] Uploading edited image to Storage...`);
     const tryOnStoragePath = `${body.session_id}/try_on_result/${crypto.randomUUID()}.png`;
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
@@ -297,7 +297,9 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
         uploadError
       );
     }
+    console.log(`[render_try_on] Uploaded try-on result to Storage path: ${tryOnStoragePath}`);
 
+    console.log(`[render_try_on] [Step 6/7] Writing results to try_on_results table...`);
     const { error: upsertError } = await supabase.from("try_on_results").upsert({
       session_id: body.session_id,
       model: hasOpenAiConfig() ? "gpt-image-2" : "fallback",
@@ -312,7 +314,9 @@ async function runTryOnInBackground(body: CreateTryOnRequest, supabase: any) {
     if (upsertError) {
       throw prefixedError("TRYON_RESULT_UPSERT_FAILED", "写入 try_on_results 失败", upsertError);
     }
+    console.log(`[render_try_on] Wrote results to try_on_results table.`);
 
+    console.log(`[render_try_on] [Step 7/7] Updating session status to try_on_ready...`);
     const { error: readyError } = await supabase
       .from("sessions")
       .update({ status: "try_on_ready" })
@@ -337,8 +341,8 @@ function buildRenderPrompt(styleName: string, parseJson: Record<string, unknown>
 
   return [
     "请把用户手图编辑成真实的美甲试戴图。",
-    "你会同时参考模板图和用户手图。",
-    "必须保留用户原始手势、手指数量、肤色、背景、透视和光线。",
+    "你会同时参考模板图 and 用户手图。",
+    "必须保留用户原始手势、手指数量、肤色、背景、透视 and 光线。",
     "只能修改可见甲面区域，不允许改动皮肤、桌面、电脑、手指结构。",
     `模板款式名称：${styleName}。`,
     tags ? `模板风格标签：${tags}。` : "",
