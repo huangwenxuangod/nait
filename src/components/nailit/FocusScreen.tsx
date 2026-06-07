@@ -71,13 +71,6 @@ const STEPS: SopStep[] = [
 
 type Phase = "learning" | "active" | "verifying" | "verified-ok" | "verified-fail" | "completed";
 
-const VERIFY_MESSAGES_FAIL = [
-  "甲面边缘检测到溢胶，请用棉签蘸酒精从甲缘外侧向内擦拭",
-  "甲面颜色不均匀，左右深浅差异较大，建议薄涂再补一层",
-  "检测到甲面有气泡/颗粒，可能是胶体太厚，建议擦掉重新薄涂",
-  "包边不完整，指尖/两侧未完全覆盖，请用刷头补涂边缘",
-];
-
 export function FocusScreen({ onExit, missingItems, tutorialData, genderMode }: { onExit: () => void; missingItems: string[]; tutorialData: TutorialData | null; genderMode: "all" | "male" }) {
   const steps = tutorialData?.steps ?? STEPS;
   const [stepIdx, setStepIdx] = useState(0);
@@ -162,7 +155,6 @@ export function FocusScreen({ onExit, missingItems, tutorialData, genderMode }: 
   }, [seconds, phase, muted]);
 
   // Countdown
-  const timerColor = step.isLampCure ? "#F5C542" : "#D4A3A3";
   const timerLabel = step.isLampCure ? "🔆 烤灯固化中" : "固化中";
 
   // Verification

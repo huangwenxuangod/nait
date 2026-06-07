@@ -1,4 +1,4 @@
-import { Sparkles, Link2, History, FileText, ListChecks, ScanLine, Play, Flame, ChevronRight, Loader2, CheckCircle2 } from "lucide-react";
+import { Sparkles, Link2, History, FileText, ListChecks, ScanLine, Play, Flame, ChevronRight, CheckCircle2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { PhoneFrame } from "./PhoneFrame";
 import { parseTutorialLink } from "@/lib/api/tutorial.functions";
@@ -48,7 +48,6 @@ export function HomeScreen({ onParseComplete, onQuickStart, onGenderPick, onGoTo
   const [showHistory, setShowHistory] = useState(false);
   const [showGenderPick, setShowGenderPick] = useState(false);
   const [genderStep, setGenderStep] = useState<"gender" | "shape">("gender");
-  const [pendingGender, setPendingGender] = useState<"all" | "male">("all");
   const [pendingUrl, setPendingUrl] = useState("");
   const stageTimer = useRef<number | null>(null);
 
@@ -401,14 +400,14 @@ export function HomeScreen({ onParseComplete, onQuickStart, onGenderPick, onGoTo
                 <p className="text-[11px] text-muted-foreground text-center mb-5">告诉我，AI 会推荐更适合你的风格</p>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => { setPendingGender("all"); onGenderPick("all"); setShowGenderPick(false); setGenderStep("gender"); startParse(pendingUrl, "all"); }}
+                    onClick={() => { onGenderPick("all"); setShowGenderPick(false); setGenderStep("gender"); startParse(pendingUrl, "all"); }}
                     className="flex-1 py-3 rounded-2xl text-sm font-medium tracking-wider transition active:scale-[0.97]"
                     style={{ backgroundColor: "rgba(212,163,163,0.1)", color: "#D4A3A3", border: "1px solid rgba(212,163,163,0.2)" }}
                   >
                     👩 我是女生
                   </button>
                   <button
-                    onClick={() => { setPendingGender("male"); onGenderPick("male"); setShowGenderPick(false); setGenderStep("gender"); startParse(pendingUrl, "male"); }}
+                    onClick={() => { onGenderPick("male"); setShowGenderPick(false); setGenderStep("gender"); startParse(pendingUrl, "male"); }}
                     className="flex-1 py-3 rounded-2xl text-sm font-medium tracking-wider transition active:scale-[0.97]"
                     style={{ backgroundColor: "rgba(90,155,122,0.1)", color: "#5A9B7A", border: "1px solid rgba(90,155,122,0.2)" }}
                   >

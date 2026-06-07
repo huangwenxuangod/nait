@@ -38,7 +38,8 @@ export const NailTutorialVideo: React.FC<Props> = ({ data, stepImages, bgmUrl })
       {/* Steps */}
       {data.steps.map((step, i) => {
         const stepStart = introEnd + i * stepDuration;
-        const stepEnd = stepStart + stepDuration;
+        // stepEnd unused but kept for clarity
+        void (stepStart + stepDuration);
         return (
           <Sequence key={i} from={stepStart} durationInFrames={stepDuration}>
             <StepSlide

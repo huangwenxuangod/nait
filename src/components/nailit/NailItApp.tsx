@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { TutorialData } from "@/lib/types";
 import { HomeScreen } from "./HomeScreen";
 import { TryOnScreen } from "./TryOnScreen";

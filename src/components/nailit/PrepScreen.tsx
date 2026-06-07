@@ -1,7 +1,7 @@
 import { Check, ChevronDown, ChevronUp, HelpCircle, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PhoneFrame } from "./PhoneFrame";
-import type { TutorialData, PrepItem, PrepSection } from "@/lib/types";
+import type { TutorialData, PrepSection } from "@/lib/types";
 import thumb from "@/assets/nail-thumb.jpg";
 
 const SECTIONS: PrepSection[] = [
