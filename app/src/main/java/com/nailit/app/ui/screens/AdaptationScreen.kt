@@ -160,18 +160,38 @@ fun AdaptationScreen(
                     sessionId = session.sessionId,
                     nailPositionHints = nailHints,
                 )
-                repository.fetchTryOnResult(session.sessionId)
-                val tryOnPath = repository.fetchTryOnImagePath(session.sessionId)
-                    ?: error("TRYON_RESULT_PATH_EMPTY: 已完成试戴调用，但没有取到结果图。")
+                NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
+                    status = tryOn.status ?: "try_on_pending",
+                    handAssetId = uploadAssetId,
+                    handStoragePath = uploadPath,
+                    handPhotoUrl = publicUrl,
+                    tryOnStatus = tryOn.status ?: "try_on_pending",
+                    targetImagePath = null,
+                    tryOnError = null,
+                )
+
+                NailSessionRuntime.backgroundScope.launch {
+                    runCatching {
+                        repository.renderTryOn(
+                            sessionId = session.sessionId,
+                            nailPositionHints = nailHints,
+                        )
+                    }.onFailure { error ->
+                        NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
+                            tryOnStatus = "failed",
+                            tryOnError = error.message ?: "TRYON_RENDER_TRIGGER_FAILED",
+                        )
+                    }
+                }
+
+                val tryOnPath = waitForTryOnPath(repository, session.sessionId)
+                    ?: error("TRYON_RESULT_TIMEOUT: 试戴结果生成超时，请稍后再试。")
                 val tryOnBitmap = loadRemoteBitmap(tryOnPath)
                     ?: error("TRYON_RESULT_LOAD_FAILED: 结果图路径存在，但图片加载失败。")
 
                 NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
-                    status = tryOn.status ?: "try_on_ready",
-                    handAssetId = uploadAssetId,
-                    handStoragePath = uploadPath,
-                    handPhotoUrl = publicUrl,
-                    tryOnStatus = tryOn.status ?: "try_on_ready",
+                    status = "try_on_ready",
+                    tryOnStatus = "try_on_ready",
                     targetImagePath = tryOnPath,
                     tryOnError = null,
                 )
@@ -518,4 +538,16 @@ private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
             MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
         }
     }.getOrNull()
+}
+
+private suspend fun waitForTryOnPath(
+    repository: SupabaseFunctionRepository,
+    sessionId: String,
+): String? {
+    repeat(90) {
+        val path = repository.fetchTryOnImagePath(sessionId)
+        if (!path.isNullOrBlank()) return path
+        delay(2000)
+    }
+    return null
 }

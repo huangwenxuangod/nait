@@ -18,7 +18,7 @@ echo.
 echo Step 2: Deploying Edge Functions to project unegfymwpzicriyjhukl...
 echo.
 
-set FUNCTIONS=create_session submit_source_link prepare_asset_upload confirm_asset_upload create_try_on generate_execution_package
+set FUNCTIONS=create_session submit_source_link prepare_asset_upload confirm_asset_upload create_try_on render_try_on generate_execution_package
 
 for %%f in (%FUNCTIONS%) do (
     echo [Deploying] %%f...

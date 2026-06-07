@@ -23,6 +23,7 @@ FUNCTIONS=(
     "prepare_asset_upload"
     "confirm_asset_upload"
     "create_try_on"
+    "render_try_on"
     "generate_execution_package"
 )
 

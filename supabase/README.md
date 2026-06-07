@@ -12,9 +12,10 @@ This directory is the first implementation pass of the formal backend from
   - `create_session`
   - `submit_source_link`
   - `prepare_asset_upload`
-  - `confirm_asset_upload`
-  - `create_try_on`
-  - `generate_execution_package`
+- `confirm_asset_upload`
+- `create_try_on`
+- `render_try_on`
+- `generate_execution_package`
 
 ## Current Reality
 
@@ -36,6 +37,6 @@ They do **not** yet perform the real AI work:
 
 1. Replace placeholder source parsing in `submit_source_link`.
 2. Add real upload signing in `prepare_asset_upload`.
-3. Add real try-on model call in `create_try_on`.
+3. Keep `create_try_on` as async queue entry, and run real try-on model call in `render_try_on`.
 4. Add real BOM + SOP generation in `generate_execution_package`.
 5. Wire Android repositories to uploads, Realtime, and status polling.
