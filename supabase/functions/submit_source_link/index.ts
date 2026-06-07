@@ -185,6 +185,15 @@ Deno.serve(async (req) => {
       returned_status: "source_parsing",
     });
     return jsonResponse(response);
+  } catch (error) {
+    logger.error("request_failed", { error: stringifyError(error) });
+    logger.done("error", { error: stringifyError(error) });
+    const message = stringifyError(error);
+    return jsonResponse(
+      { error: message },
+      { status: 500 },
+    );
+  }
 });
 
 function buildLocalFallbackParse(sourceUrl: string): SourceParsePayload {
