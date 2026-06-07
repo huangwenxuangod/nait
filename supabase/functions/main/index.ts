@@ -11,18 +11,17 @@ Deno.serve(async (req: Request) => {
     return new Response('No function name specified in path', { status: 400 });
   }
 
-  const servicePath = `../${functionName}`;
-  console.log(`[main] Routing to service: ${servicePath}`);
+  // Use absolute container path to bypass Deno's temporary compilation directory sandbox
+  const servicePath = `file:///home/deno/functions/${functionName}/index.ts`;
+  console.log(`[main] Routing to service absolute path: ${servicePath}`);
 
   try {
-    const module = await import(`${servicePath}/index.ts`);
+    const module = await import(servicePath);
     const handler = module.default;
     if (typeof handler === 'function') {
       return await handler(req);
     }
     
-    // If the module does not export a default handler, we return a success status
-    // because some Supabase Edge Runtime environments handle Deno.serve registration globally.
     return new Response(`Function ${functionName} loaded successfully`, { status: 200 });
   } catch (err) {
     console.error(`[main] Error routing to ${functionName}:`, err);
