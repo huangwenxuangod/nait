@@ -1,29 +1,44 @@
 package com.nailit.app.ui.screens
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,7 +63,6 @@ import kotlinx.coroutines.delay
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +100,7 @@ fun HomeScreen(
     onOpenFlow: () -> Unit,
     onOpenResult: () -> Unit,
     onOpenChat: () -> Unit,
+    onOpenInspiration: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -318,79 +333,375 @@ fun HomeScreen(
         }
     }
 
-    val pickMediaLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri == null) {
-            statusText = "未选择手图。"
-            return@rememberLauncherForActivityResult
-        }
-        runCatching {
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
-        }.getOrNull()?.let(startTryOnFlow) ?: run {
-            statusText = "手图读取失败，请重试。"
-        }
-    }
-
-    val takePicturePreviewLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap ->
-        if (bitmap != null) {
-            startTryOnFlow(bitmap)
-        } else {
-            statusText = "未拍到手图，请重试。"
-        }
-    }
-
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            takePicturePreviewLauncher.launch(null)
-        } else {
-            pickMediaLauncher.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
-        }
-    }
-
     fun openCaptureForTryOn() {
-        val hasCameraPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.CAMERA,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (hasCameraPermission) {
-            takePicturePreviewLauncher.launch(null)
-        } else {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        val sourceUrl = linkInput.ifBlank { "preset://${currentTemplate.id}" }
+        val sourceType = if (linkInput.isNotBlank()) "short_video_link" else "preset"
+        val localSessionId = "local-${UUID.randomUUID()}"
+        HandPhotoRuntime.currentBitmap = null
+        NailSessionRuntime.current = NailSessionSnapshot(
+            sessionId = localSessionId,
+            sourceUrl = sourceUrl,
+            sourceType = sourceType,
+            selectedTutorialId = currentTemplate.id,
+            status = "booting",
+            sourceParseJson = null,
+        )
+        onOpenFlow()
+
+        NailSessionRuntime.backgroundScope.launch {
+            runCatching {
+                val installId = getInstallId(context)
+                val session = repository.createSession(
+                    installId = installId,
+                    sourceType = sourceType,
+                )
+                val remoteSessionId = session.session_id ?: error("createSession missing session_id")
+
+                val submitDeferred = async {
+                    repository.submitSourceLink(
+                        sessionId = remoteSessionId,
+                        sourceUrl = sourceUrl,
+                    )
+                }
+
+                val templateUploadDeferred = async {
+                    uploadPresetTemplateIfNeeded(
+                        context = context,
+                        repository = repository,
+                        remoteSessionId = remoteSessionId,
+                        template = currentTemplate,
+                    )
+                }
+
+                NailSessionRuntime.current = NailSessionRuntime.current?.copy(
+                    sessionId = remoteSessionId,
+                    status = session.status ?: "draft",
+                ) ?: NailSessionSnapshot(
+                    sessionId = remoteSessionId,
+                    sourceUrl = sourceUrl,
+                    sourceType = sourceType,
+                    selectedTutorialId = currentTemplate.id,
+                    status = session.status ?: "draft",
+                )
+
+                val submit = submitDeferred.await()
+                templateUploadDeferred.await()
+                NailSessionRuntime.current = NailSessionRuntime.current?.copy(
+                    status = submit.status ?: "source_parsing",
+                )
+            }.onFailure { error ->
+                val detailedError = "会话初始化失败: [${error::class.simpleName}] ${error.message}\n原因: ${error.cause?.message ?: "无"}\n堆栈: ${error.stackTrace.take(3).joinToString("\n")}"
+                Log.e("HomeScreen", "[openCaptureForTryOn] Failure: $detailedError", error)
+                NailSessionRuntime.current = NailSessionRuntime.current?.copy(
+                    status = "bootstrap_failed",
+                )
+                statusText = "初始化失败：${error.message ?: "未知错误"}\n请检查网络连接或稍后重试。"
+            }
         }
     }
+
+    val inspirationPreview = listOf(
+        templates[0],
+        templates[1],
+        templates[6],
+        templates[8],
+    )
 
     Scaffold(containerColor = EntryBg) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 20.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = "Nail-It",
-                    style = MaterialTheme.typography.headlineLarge.copy(
-                        color = EntryTitle,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 34.sp,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "指尖 SOP",
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                color = EntryTitle,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 32.sp,
+                            )
+                        )
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color(0xFFD4A3A3),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    Text(
+                        text = "试戴看效果 · AI 拆解教程 · 跟着做",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = EntryBody,
+                            fontSize = 14.sp,
+                        )
                     )
-                )
-                Text(
-                    text = "先看效果，再决定要不要做。",
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        color = EntryBody,
-                        fontSize = 15.sp,
+                }
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(20.dp),
+                    shadowElevation = 2.dp,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .clickable { statusText = "历史记录能力已预留，后面可接最近解析记录。" }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = null,
+                            tint = EntryTitle.copy(alpha = 0.78f),
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = "历史记录",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = EntryBody,
+                            ),
+                        )
+                    }
+                }
+            }
+
+            Surface(
+                color = Color.White,
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 4.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.White)
+                            .border(1.dp, Color(0x22D4A3A3), RoundedCornerShape(18.dp))
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = null,
+                            tint = Color(0xFFD4A3A3),
+                            modifier = Modifier.size(18.dp),
+                        )
+                        BasicTextField(
+                            value = linkInput,
+                            onValueChange = { linkInput = it },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = EntryTitle,
+                                fontSize = 14.sp,
+                            ),
+                            modifier = Modifier.weight(1f),
+                            decorationBox = { inner ->
+                                if (linkInput.isBlank()) {
+                                    Text(
+                                        text = "粘贴美甲教程链接，或者直接试戴当前这一款",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            color = EntryBody,
+                                            fontSize = 13.sp,
+                                        )
+                                    )
+                                }
+                                inner()
+                            }
+                        )
+                        Button(
+                            onClick = {
+                                if (!isCreating) {
+                                    openCaptureForTryOn()
+                                }
+                            },
+                            enabled = !isCreating,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EntryAccent,
+                                contentColor = Color.White,
+                            ),
+                        ) {
+                            if (isCreating) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.White,
+                                )
+                            } else {
+                                Text("开始试戴")
+                            }
+                        }
+                    }
+                    Text(
+                        text = "支持抖音、小红书等短视频链接，也可以直接从当前模板开始试戴。",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = EntryBody,
+                            lineHeight = 18.sp,
+                        ),
+                        modifier = Modifier.padding(horizontal = 4.dp),
                     )
-                )
+                }
+            }
+
+            Surface(
+                color = Color.White,
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CapabilityStat(
+                        icon = Icons.Default.Description,
+                        label = "教程解析",
+                        tint = Color(0xFFC97B7B),
+                        bg = Color(0xFFFBE9E9),
+                    )
+                    CapabilityDivider()
+                    CapabilityStat(
+                        icon = Icons.Default.AutoAwesome,
+                        label = "智能拆解",
+                        tint = Color(0xFF7A6FB5),
+                        bg = Color(0xFFECE9F7),
+                    )
+                    CapabilityDivider()
+                    CapabilityStat(
+                        icon = Icons.Default.PhotoLibrary,
+                        label = "试戴识别",
+                        tint = Color(0xFF5A9B7A),
+                        bg = Color(0xFFE3F1E8),
+                    )
+                }
+            }
+
+            HomeSectionCard(
+                title = "教程解析示例",
+                action = "直接开始",
+                onAction = { openCaptureForTryOn() },
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf("修形", "底胶", "色胶", "照灯", "封层", "精修").forEachIndexed { index, item ->
+                            StepChip(
+                                index = index + 1,
+                                label = item,
+                                active = index == 0,
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(172.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .clickable { openCaptureForTryOn() },
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.home_nail_reference),
+                            contentDescription = "教程解析示例",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.16f),
+                                        )
+                                    )
+                                )
+                        )
+                        Surface(
+                            color = Color.White.copy(alpha = 0.88f),
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier.align(Alignment.Center),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = EntryTitle,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        text = "看教程 · 贴链接 · 跟着做",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = EntryTitle,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                    )
+                }
+            }
+
+            HomeSectionCard(
+                title = "热门美甲灵感",
+                action = "更多灵感",
+                onAction = onOpenInspiration,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    inspirationPreview.forEach { item ->
+                        Column(
+                            modifier = Modifier
+                                .size(width = 104.dp, height = 134.dp)
+                                .clickable {
+                                    onSelectId(item.id)
+                                    onOpenInspiration()
+                                },
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Image(
+                                painter = painterResource(item.imageRes),
+                                contentDescription = item.title,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(102.dp)
+                                    .clip(RoundedCornerShape(18.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Text(
+                                text = item.title,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = EntryTitle,
+                                ),
+                                maxLines = 2,
+                            )
+                        }
+                    }
+                }
             }
 
             HorizontalPager(
@@ -409,7 +720,7 @@ fun HomeScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(500.dp)
+                        .height(360.dp)
                         .scale(scale)
                         .alpha(alpha)
                         .clip(RoundedCornerShape(34.dp)),
@@ -455,65 +766,6 @@ fun HomeScreen(
                             )
                         )
                     }
-                }
-            }
-
-            BasicTextField(
-                value = linkInput,
-                onValueChange = { linkInput = it },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                    color = EntryTitle,
-                    fontSize = 15.sp,
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(EntrySoft)
-                    .padding(horizontal = 16.dp, vertical = 15.dp),
-                decorationBox = { inner ->
-                    if (linkInput.isBlank()) {
-                        Text(
-                            text = "粘贴教程链接，或者直接试戴当前这一款",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = EntryBody,
-                            )
-                        )
-                    }
-                    inner()
-                }
-            )
-
-            Button(
-                onClick = {
-                    if (!isCreating) {
-                        openCaptureForTryOn()
-                    }
-                },
-                enabled = !isCreating,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp),
-                shape = RoundedCornerShape(22.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = EntryAccent,
-                    contentColor = Color.White,
-                )
-            ) {
-                if (isCreating) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = Color.White,
-                    )
-                } else {
-                    Text(
-                        text = "开始试戴",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.sp,
-                        )
-                    )
                 }
             }
 
@@ -658,6 +910,138 @@ fun HomeScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HomeSectionCard(
+    title: String,
+    action: String,
+    onAction: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(28.dp),
+        shadowElevation = 3.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            color = EntryTitle,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                    )
+                    Row(
+                        modifier = Modifier.clickable(onClick = onAction),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = action,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = EntryBody,
+                            ),
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = null,
+                            tint = EntryBody,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
+                content()
+            }
+        )
+    }
+}
+
+@Composable
+private fun CapabilityStat(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color,
+    bg: Color,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(bg),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(15.dp),
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium.copy(
+                color = EntryTitle.copy(alpha = 0.8f),
+            ),
+        )
+    }
+}
+
+@Composable
+private fun CapabilityDivider() {
+    Spacer(
+        modifier = Modifier
+            .size(width = 1.dp, height = 24.dp)
+            .background(Color(0xFFE9E0D9))
+    )
+}
+
+@Composable
+private fun StepChip(
+    index: Int,
+    label: String,
+    active: Boolean,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.padding(end = 2.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(if (active) EntryAccent else EntrySoft),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = index.toString(),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    color = if (active) Color.White else EntryBody,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall.copy(
+                color = if (active) EntryTitle else EntryBody,
+            ),
+        )
     }
 }
 
