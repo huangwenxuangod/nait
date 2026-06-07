@@ -178,20 +178,6 @@ fun AdaptationScreen(
                     tryOnError = null,
                 )
 
-                NailSessionRuntime.backgroundScope.launch {
-                    runCatching {
-                        repository.renderTryOn(
-                            sessionId = session.sessionId,
-                            nailPositionHints = nailHints,
-                        )
-                    }.onFailure { error ->
-                        NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
-                            tryOnStatus = "failed",
-                            tryOnError = error.message ?: "TRYON_RENDER_TRIGGER_FAILED",
-                        )
-                    }
-                }
-
                 val tryOnPath = waitForTryOnPath(repository, session.sessionId) { status ->
                     NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
                         tryOnStatus = status,

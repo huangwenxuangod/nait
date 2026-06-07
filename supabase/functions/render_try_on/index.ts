@@ -264,33 +264,41 @@ Deno.serve(async (req) => {
       image_model: Deno.env.get("OPENAI_IMAGE_MODEL") ?? "gpt-image-2",
       prompt_length: finalPrompt.length,
     });
-    const imageBase64 = await createImageEdit({
-      prompt: finalPrompt,
-      imageBase64: handBase64,
-      mimeType: handFile.type || "image/jpeg",
-      fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
-      imageInputs: [
-        {
-          imageBase64: handBase64,
-          mimeType: handFile.type || "image/jpeg",
-          fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
-        },
-        ...(
-          tutorialBase64
-            ? [{
-                imageBase64: tutorialBase64,
-                mimeType: "image/jpeg",
-                fileName: "tutorial-reference.jpg",
-              }]
-            : []
-        ),
-      ],
-    }).catch((error) => {
-      throw prefixedError("TRYON_IMAGE_GENERATION_FAILED", "生成试戴图片失败", error);
-    });
-    logger.log("step_7_image_edit_done", {
-      image_base64_length: imageBase64.length,
-    });
+    let imageBase64 = "";
+    let usedFallbackPreview = false;
+    try {
+      imageBase64 = await createImageEdit({
+        prompt: finalPrompt,
+        imageBase64: handBase64,
+        mimeType: handFile.type || "image/jpeg",
+        fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
+        imageInputs: [
+          {
+            imageBase64: handBase64,
+            mimeType: handFile.type || "image/jpeg",
+            fileName: handAsset.storage_path.split("/").pop() || "hand-photo.jpg",
+          },
+          ...(
+            tutorialBase64
+              ? [{
+                  imageBase64: tutorialBase64,
+                  mimeType: "image/jpeg",
+                  fileName: "tutorial-reference.jpg",
+                }]
+              : []
+          ),
+        ],
+      });
+      logger.log("step_7_image_edit_done", {
+        image_base64_length: imageBase64.length,
+      });
+    } catch (error) {
+      logger.warn("step_7_image_edit_failed_fallback", {
+        error: stringifyError(error),
+      });
+      imageBase64 = handBase64;
+      usedFallbackPreview = true;
+    }
 
     logger.log("step_8_storage_upload_start");
     const tryOnStoragePath = `${body.session_id}/try_on_result/${crypto.randomUUID()}.png`;
@@ -314,12 +322,13 @@ Deno.serve(async (req) => {
     logger.log("step_9_db_upsert_result_start");
     const { error: upsertError } = await supabase.from("try_on_results").upsert({
       session_id: body.session_id,
-      model: hasOpenAiConfig() ? "gpt-image-2" : "fallback",
+      model: usedFallbackPreview ? "fallback-preview" : (hasOpenAiConfig() ? "gpt-image-2" : "fallback"),
       version: "v2",
       result_image_path: tryOnStoragePath,
       result_json: {
         ...resultJson,
         result_image_path: tryOnStoragePath,
+        used_fallback_preview: usedFallbackPreview,
       },
     });
     if (upsertError) {

@@ -5,7 +5,7 @@ console.log("main function started");
 
 const JWT_SECRET = Deno.env.get("JWT_SECRET") ?? "";
 const VERIFY_JWT = Deno.env.get("VERIFY_JWT") === "true";
-const DEFAULT_WORKER_TIMEOUT_MS = 180 * 1000;
+const DEFAULT_WORKER_TIMEOUT_MS = 300 * 1000;
 const DEFAULT_WORKER_MEMORY_MB = 256;
 
 function parsePositiveIntEnv(name: string, fallback: number) {

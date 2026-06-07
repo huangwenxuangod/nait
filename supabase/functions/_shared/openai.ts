@@ -6,6 +6,10 @@ const OPENAI_BASE_URL = Deno.env.get("OPENAI_BASE_URL") ?? "https://api.openai.c
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 const DEFAULT_MODEL = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini";
 const IMAGE_MODEL = Deno.env.get("OPENAI_IMAGE_MODEL") ?? "gpt-image-2";
+const IMAGE_EDIT_TIMEOUT_MS = Number.parseInt(
+  Deno.env.get("OPENAI_IMAGE_EDIT_TIMEOUT_MS") ?? "45000",
+  10,
+);
 
 export function hasOpenAiConfig() {
   return OPENAI_API_KEY.trim().length > 0;
@@ -145,21 +149,35 @@ export async function createImageEdit({
   console.log(`[openai] createImageEdit start | model=${model} | size=${size} | extra_images=${imageInputs?.length ?? 0}`);
 
   const endpoint = `${OPENAI_BASE_URL.replace(/\/+$/, "")}/images/edits`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: createImageEditFormData({
-      prompt,
-      imageBase64,
-      mimeType,
-      fileName,
-      model,
-      size,
-      imageInputs,
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort("OPENAI_IMAGE_EDIT_TIMEOUT"), IMAGE_EDIT_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: createImageEditFormData({
+        prompt,
+        imageBase64,
+        mimeType,
+        fileName,
+        model,
+        size,
+        imageInputs,
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if ((error as Error)?.name === "AbortError") {
+      console.error(`[openai] createImageEdit timeout | model=${model} | timeout_ms=${IMAGE_EDIT_TIMEOUT_MS}`);
+      throw new Error(`OpenAI image edit timeout after ${IMAGE_EDIT_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
