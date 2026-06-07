@@ -5,6 +5,15 @@ console.log("main function started");
 
 const JWT_SECRET = Deno.env.get("JWT_SECRET") ?? "";
 const VERIFY_JWT = Deno.env.get("VERIFY_JWT") === "true";
+const DEFAULT_WORKER_TIMEOUT_MS = 180 * 1000;
+const DEFAULT_WORKER_MEMORY_MB = 256;
+
+function parsePositiveIntEnv(name: string, fallback: number) {
+  const raw = Deno.env.get(name);
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function getAuthToken(req: Request) {
   const authHeader = req.headers.get("authorization");
@@ -64,10 +73,13 @@ serve(async (req: Request) => {
   }
 
   const servicePath = `/home/deno/functions/${serviceName}`;
-  console.log(`[main] serving request with ${servicePath}`);
+  const workerTimeoutMs = parsePositiveIntEnv("EDGE_WORKER_TIMEOUT_MS", DEFAULT_WORKER_TIMEOUT_MS);
+  const memoryLimitMb = parsePositiveIntEnv("EDGE_WORKER_MEMORY_MB", DEFAULT_WORKER_MEMORY_MB);
 
-  const memoryLimitMb = 150;
-  const workerTimeoutMs = 60 * 1000;
+  console.log(
+    `[main] serving request with ${servicePath} | timeout_ms=${workerTimeoutMs} | memory_mb=${memoryLimitMb}`,
+  );
+
   const noModuleCache = false;
   const importMapPath = null;
   const envVarsObj = Deno.env.toObject();

@@ -190,8 +190,11 @@ fun AdaptationScreen(
                     }
                 }
 
-                val tryOnPath = waitForTryOnPath(repository, session.sessionId)
-                    ?: error("TRYON_RESULT_TIMEOUT: 试戴结果生成超时，请稍后再试。")
+                val tryOnPath = waitForTryOnPath(repository, session.sessionId) { status ->
+                    NailSessionRuntime.current = (NailSessionRuntime.current ?: session).copy(
+                        tryOnStatus = status,
+                    )
+                } ?: error("TRYON_RESULT_TIMEOUT: 试戴结果生成超时，请稍后再试。")
                 val tryOnBitmap = loadRemoteBitmap(tryOnPath)
                     ?: error("TRYON_RESULT_LOAD_FAILED: 结果图路径存在，但图片加载失败。")
 
@@ -582,8 +585,12 @@ private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
 private suspend fun waitForTryOnPath(
     repository: SupabaseFunctionRepository,
     sessionId: String,
+    onStatusUpdate: (String?) -> Unit = {},
 ): String? {
-    repeat(90) {
+    repeat(120) {
+        val status = repository.fetchSessionStatus(sessionId)
+        onStatusUpdate(status)
+        if (status == "failed") return null
         val path = repository.fetchTryOnImagePath(sessionId)
         if (!path.isNullOrBlank()) return path
         delay(2000)

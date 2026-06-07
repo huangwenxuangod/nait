@@ -1,4 +1,7 @@
-import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
+import {
+  decodeBase64,
+  encodeBase64,
+} from "https://deno.land/std@0.224.0/encoding/base64.ts";
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { getAdminClient } from "../_shared/client.ts";
 import { createRequestLogger, stringifyError } from "../_shared/logger.ts";
@@ -119,7 +122,7 @@ Deno.serve(async (req) => {
       );
     }
     const handBytes = new Uint8Array(await handFile.arrayBuffer());
-    const handBase64 = btoa(String.fromCharCode(...handBytes));
+    const handBase64 = encodeBase64(handBytes);
     logger.log("step_4_download_hand_image_done", {
       mime_type: handFile.type || "image/jpeg",
       hand_bytes: handBytes.length,
@@ -161,7 +164,7 @@ Deno.serve(async (req) => {
           .download(tutorialAsset.storage_path);
         if (!tutorialFileError && tutorialFile) {
           const tutorialBytes = new Uint8Array(await tutorialFile.arrayBuffer());
-          tutorialBase64 = btoa(String.fromCharCode(...tutorialBytes));
+          tutorialBase64 = encodeBase64(tutorialBytes);
         }
       }
       logger.log("step_5_download_template_done", {

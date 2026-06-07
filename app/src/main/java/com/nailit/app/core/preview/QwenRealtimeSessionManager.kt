@@ -16,6 +16,11 @@ import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
 import android.util.Base64
 import java.util.UUID
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 data class QwenRealtimeState(
     val status: QwenRealtimeStatus = QwenRealtimeStatus.Idle,
@@ -24,6 +29,8 @@ data class QwenRealtimeState(
     val lastAudioDeltaBase64: String = "",
     val responseDoneCount: Int = 0,
     val errorMessage: String = "",
+    val retryCount: Int = 0,
+    val degradedToOffline: Boolean = false,
 )
 
 enum class QwenRealtimeStatus {
@@ -49,8 +56,16 @@ class QwenRealtimeSessionManager {
     val state: StateFlow<QwenRealtimeState> = _state.asStateFlow()
 
     private var webSocket: WebSocket? = null
+    private var lastTokenPayload: CreateRealtimeTokenResponse? = null
+    private var reconnectJob: Job? = null
+    private var manualDisconnect = false
+    private val scope = CoroutineScope(Dispatchers.IO)
+    private val maxReconnectAttempts = 2
 
     fun connect(tokenPayload: CreateRealtimeTokenResponse) {
+        reconnectJob?.cancel()
+        manualDisconnect = false
+        lastTokenPayload = tokenPayload
         _state.value = QwenRealtimeState(
             status = QwenRealtimeStatus.Connecting,
             lastEvent = "opening_socket",
@@ -85,20 +100,22 @@ class QwenRealtimeSessionManager {
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                _state.value = _state.value.copy(
-                    status = QwenRealtimeStatus.Closed,
-                    lastEvent = "closed:$code:$reason",
-                    errorMessage = "WS_CLOSED:$code:$reason",
-                )
+                if (manualDisconnect) {
+                    _state.value = _state.value.copy(
+                        status = QwenRealtimeStatus.Closed,
+                        lastEvent = "closed:$code:$reason",
+                        errorMessage = "WS_CLOSED:$code:$reason",
+                    )
+                } else {
+                    scheduleReconnect("WS_CLOSED:$code:$reason")
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 val statusCode = response?.code
                 val statusMessage = response?.message
-                _state.value = _state.value.copy(
-                    status = QwenRealtimeStatus.Error,
-                    lastEvent = t.message ?: "socket_failure",
-                    errorMessage = buildString {
+                scheduleReconnect(
+                    buildString {
                         append("WS_FAILURE:")
                         append(t.message ?: "socket_failure")
                         if (statusCode != null) {
@@ -116,6 +133,8 @@ class QwenRealtimeSessionManager {
     }
 
     fun disconnect() {
+        manualDisconnect = true
+        reconnectJob?.cancel()
         webSocket?.close(1000, "client_close")
         webSocket = null
         _state.value = QwenRealtimeState(
@@ -241,5 +260,35 @@ class QwenRealtimeSessionManager {
         if ("model=" in url) return url
         val separator = if ("?" in url) "&" else "?"
         return "$url${separator}model=$model"
+    }
+
+    private fun scheduleReconnect(errorMessage: String) {
+        if (manualDisconnect) return
+
+        val currentRetry = _state.value.retryCount
+        if (currentRetry >= maxReconnectAttempts) {
+            _state.value = _state.value.copy(
+                status = QwenRealtimeStatus.Error,
+                lastEvent = "offline_degraded",
+                errorMessage = errorMessage,
+                degradedToOffline = true,
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(
+            status = QwenRealtimeStatus.Connecting,
+            lastEvent = "reconnecting",
+            errorMessage = errorMessage,
+            retryCount = currentRetry + 1,
+        )
+
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            delay(1500L * (currentRetry + 1))
+            val payload = lastTokenPayload ?: return@launch
+            connect(payload)
+            _state.value = _state.value.copy(retryCount = currentRetry + 1)
+        }
     }
 }

@@ -1,3 +1,5 @@
+import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
+
 import { extractJsonString } from "./qwen.ts";
 
 const OPENAI_BASE_URL = Deno.env.get("OPENAI_BASE_URL") ?? "https://api.openai.com/v1";
@@ -208,7 +210,7 @@ function createImageEditFormData({
   // 👈 严格单图：只发送手图（hand_photo）作为 image 参数，符合 OpenAI 官方 /images/edits 规范，防止多图导致中转代理挂起超时！
   form.append(
     "image",
-    new Blob([Uint8Array.from(atob(imageBase64), (c) => c.charCodeAt(0))], {
+    new Blob([decodeBase64(imageBase64)], {
       type: mimeType || "image/jpeg",
     }),
     fileName || "hand-photo.jpg",

@@ -404,6 +404,7 @@ fun ConversationScreen(
                         mode = uiState.mode,
                         currentStep = currentStep,
                         realtimeError = realtimeState.errorMessage,
+                        degradedToOffline = realtimeState.degradedToOffline,
                     ),
                     style = MaterialTheme.typography.bodyLarge.copy(
                         color = Color.White.copy(alpha = 0.92f),
@@ -674,8 +675,12 @@ private fun bottomCoachLine(
     mode: LiveGuideMode,
     currentStep: ExecutionStep?,
     realtimeError: String,
+    degradedToOffline: Boolean,
 ): String {
     if (!permissionHint.isNullOrBlank()) return permissionHint
+    if (degradedToOffline) {
+        return currentStep?.instruction ?: "实时连接暂时不可用，已切换为离线带做模式。"
+    }
     if (realtimeError.isNotBlank()) return realtimeError
     if (coachLine.isNotBlank()) return coachLine
     return when (mode) {
@@ -693,7 +698,7 @@ private fun cameraStatusLabel(
 ): String {
     return when {
         realtimeStatus == QwenRealtimeStatus.Connecting -> "连接中"
-        realtimeStatus == QwenRealtimeStatus.Error -> "连接异常"
+        realtimeStatus == QwenRealtimeStatus.Error -> "离线带做"
         mode == LiveGuideMode.Guiding -> "当前引导"
         mode == LiveGuideMode.Waiting -> "实时对话"
         mode == LiveGuideMode.Checking -> "正在复核"

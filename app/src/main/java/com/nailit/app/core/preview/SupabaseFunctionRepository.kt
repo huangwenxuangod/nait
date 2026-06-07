@@ -58,6 +58,17 @@ class SupabaseFunctionRepository {
         }
     }
 
+    private val longRunningClient = HttpClient {
+        install(ContentNegotiation) {
+            json(json)
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 240000L
+            connectTimeoutMillis = 30000L
+            socketTimeoutMillis = 240000L
+        }
+    }
+
     fun isConfigured(): Boolean {
         return BuildConfig.SUPABASE_URL.isNotBlank() && BuildConfig.SUPABASE_ANON_KEY.isNotBlank()
     }
@@ -183,7 +194,8 @@ class SupabaseFunctionRepository {
             requestBody = RenderTryOnRequest(
                 session_id = sessionId,
                 nail_position_hints = nailPositionHints,
-            )
+            ),
+            useLongRunningClient = true,
         )
     }
 
@@ -284,6 +296,22 @@ class SupabaseFunctionRepository {
         return (records.first().jsonObject["result_image_path"] as? JsonPrimitive)?.contentOrNull
     }
 
+    suspend fun fetchSessionStatus(sessionId: String): String? {
+        if (!isConfigured()) return null
+
+        val raw = client.get(
+            "${BuildConfig.SUPABASE_URL.trimEnd('/')}/rest/v1/sessions?id=eq.$sessionId&select=status"
+        ) {
+            header(HttpHeaders.Authorization, "Bearer ${BuildConfig.SUPABASE_ANON_KEY}")
+            header("apikey", BuildConfig.SUPABASE_ANON_KEY)
+            header(HttpHeaders.Accept, ContentType.Application.Json.toString())
+        }.body<String>()
+
+        val records = json.parseToJsonElement(raw).jsonArray
+        if (records.isEmpty()) return null
+        return (records.first().jsonObject["status"] as? JsonPrimitive)?.contentOrNull
+    }
+
     suspend fun fetchBom(sessionId: String): JsonObject? {
         return fetchJsonPayload(
             table = "bom_lists",
@@ -324,9 +352,11 @@ class SupabaseFunctionRepository {
 
     private suspend inline fun <reified REQ : Any, reified RES : Any> safePost(
         functionName: String,
-        requestBody: REQ
+        requestBody: REQ,
+        useLongRunningClient: Boolean = false,
     ): RES {
-        val httpResponse = client.post("${BuildConfig.SUPABASE_URL.trimEnd('/')}/functions/v1/$functionName") {
+        val httpClient = if (useLongRunningClient) longRunningClient else client
+        val httpResponse = httpClient.post("${BuildConfig.SUPABASE_URL.trimEnd('/')}/functions/v1/$functionName") {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer ${BuildConfig.SUPABASE_ANON_KEY}")
             header("apikey", BuildConfig.SUPABASE_ANON_KEY)
