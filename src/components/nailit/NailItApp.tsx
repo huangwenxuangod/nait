@@ -6,9 +6,11 @@ import { PrepScreen } from "./PrepScreen";
 import { FocusScreen } from "./FocusScreen";
 import { InspirationScreen } from "./InspirationScreen";
 import { ProfileScreen } from "./ProfileScreen";
+import { NailShapeTrialScreen } from "./NailShapeTrialScreen";
+import { SplashScreen } from "./SplashScreen";
 import { Sparkles } from "lucide-react";
 
-type Screen = "home" | "inspiration" | "profile" | "tryon" | "prep" | "focus";
+type Screen = "splash" | "home" | "inspiration" | "profile" | "shapeTrial" | "tryon" | "prep" | "focus";
 
 function TabBar({ current, onChange }: { current: Screen; onChange: (s: Screen) => void }) {
   const tabs = [
@@ -48,12 +50,13 @@ function UserIcon() {
 }
 
 export function NailItApp() {
-  const [screen, setScreen] = useState<Screen>("home");
+  const [screen, setScreen] = useState<Screen>("splash");
   const [handImage, setHandImage] = useState<string | null>(null);
   const [missingItems, setMissingItems] = useState<string[]>([]);
   const [tutorialData, setTutorialData] = useState<TutorialData | null>(null);
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [completed, setCompleted] = useState<{ title: string; date: string; steps: number }[]>([]);
+  const [genderMode, setGenderMode] = useState<"all" | "male">("all");
   const screenKey = useRef(0);
 
   const navigate = (next: Screen) => {
@@ -72,6 +75,10 @@ export function NailItApp() {
 
   const showTab = screen === "home" || screen === "inspiration" || screen === "profile";
 
+  if (screen === "splash") {
+    return <SplashScreen onDone={() => navigate("home")} />;
+  }
+
   return (
     <div style={{ position: "relative" }}>
       {(() => {
@@ -81,17 +88,20 @@ export function NailItApp() {
               <HomeScreen
                 handImage={handImage}
                 onHandChange={setHandImage}
+                onGenderPick={(gender) => setGenderMode(gender)}
+                onGoToInspiration={() => navigate("inspiration")}
                 onParseComplete={(data) => {
                   setTutorialData(data);
                   setWishlist((w) => (w.includes(data.videoTitle) ? w : [data.videoTitle, ...w]));
-                  navigate("tryon");
+                  navigate("shapeTrial");
                 }}
-                onQuickStart={() => navigate("tryon")}
+                onQuickStart={() => navigate("shapeTrial")}
               />,
             );
           case "inspiration":
             return render(
               <InspirationScreen
+                genderMode={genderMode}
                 onSelectVideo={(title) => {
                   setWishlist((w) => (w.includes(title) ? w : [title, ...w]));
                 }}
@@ -99,6 +109,17 @@ export function NailItApp() {
             );
           case "profile":
             return render(<ProfileScreen wishlist={wishlist} completed={completed} />);
+          case "shapeTrial":
+            return render(
+              <NailShapeTrialScreen
+                styleName={tutorialData?.videoTitle ?? "当前款式"}
+                primaryColor="#D4A3A3"
+                onBack={() => navigate("home")}
+                onConfirm={(shape, length) => {
+                  navigate("tryon");
+                }}
+              />,
+            );
           case "tryon":
             return render(
               <TryOnScreen
@@ -134,6 +155,7 @@ export function NailItApp() {
                 }}
                 missingItems={missingItems}
                 tutorialData={tutorialData}
+                genderMode={genderMode}
               />,
             );
         }

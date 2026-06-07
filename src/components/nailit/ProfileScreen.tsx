@@ -1,4 +1,4 @@
-import { Heart, CheckCircle2, Clock, ChevronRight, Sparkles, History } from "lucide-react";
+import { Heart, CheckCircle2, Clock, ChevronRight, History, Star } from "lucide-react";
 import { PhoneFrame } from "./PhoneFrame";
 import insp1 from "@/assets/insp-1.jpg";
 import insp3 from "@/assets/insp-3.jpg";
@@ -19,12 +19,26 @@ export function ProfileScreen({ wishlist, completed }: Props) {
   const list = wishlist.length > 0 ? wishlist : demoWishlist;
   const done = completed.length > 0 ? completed : demoCompleted;
   const isEmpty = wishlist.length === 0;
+  const points = done.length * 100;
+
 
   return (
     <PhoneFrame>
       <div className="flex flex-col min-h-screen pb-20">
         <div className="px-6 pt-12">
-          <h1 className="text-[28px] font-semibold tracking-tight text-foreground">我的</h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-[28px] font-semibold tracking-tight text-foreground">我的</h1>
+            <span
+              className="flex items-center gap-1 px-3.5 py-1.5 rounded-full text-[14px] font-medium tracking-wider"
+              style={{
+                backgroundColor: points >= 500 ? "rgba(245,197,66,0.15)" : "rgba(212,163,163,0.08)",
+                color: points >= 500 ? "#C49B1A" : "#D4A3A3",
+              }}
+            >
+              {points >= 1000 ? "💎" : points >= 500 ? "🌟" : points >= 200 ? "⭐" : "🌱"}
+              {points >= 1000 ? "大师" : points >= 500 ? "进阶" : points >= 200 ? "入门" : "新手"}
+            </span>
+          </div>
           <p className="mt-1 text-[13px] text-muted-foreground">心愿单 · 制作记录</p>
         </div>
 
@@ -49,7 +63,7 @@ export function ProfileScreen({ wishlist, completed }: Props) {
             <div className="w-px h-8 bg-border" />
             <Stat icon={<CheckCircle2 className="w-4 h-4" />} label="已完成" value={done.length} color="#A8D5BA" />
             <div className="w-px h-8 bg-border" />
-            <Stat icon={<Sparkles className="w-4 h-4" />} label="总步骤" value={done.reduce((s, x) => s + x.steps, 0)} color="#F5C542" />
+            <Stat icon={<Star className="w-4 h-4" />} label="积分" value={points} color="#F5C542" />
           </div>
         </div>
 

@@ -43,11 +43,11 @@ const PARSE_PROMPT = `你是一个专业的美甲教程 AI 拆解助手。用户
 要求：
 1. 所有内容全部使用中文，不要出现英文单词。
 2. 根据视频实际内容拆解为 4-8 步，每步包含真实可信的操作指令。
-3. 工具清单分"基础工具"和"专属色号"两组。
-4. 每项工具/材料都要给出 1-3 个可行的替代方案。
-5. aiTranslation 要给出精确、可操作的专业步骤和注意事项。
+3. 基础工具必须包含以下 5 项（可根据视频额外增减）：底胶、烤灯、封层、海绵搓条、清洁液。每项必须写清用途和 1-3 个替代方案。
+4. 专属色号列出该款式的所有颜色/材料，每项写清颜色描述和替代色号或叠加方案。
+5. aiTranslation 要给出精确、可操作的专业步骤和注意事项（至少 2 句）。
 6. 烤灯固化步骤的 isLampCure 必须为 true，时长 60-120 秒。
-7. 直接返回合法 JSON，不要任何额外文字。
+7. 每次对同一链接必须返回完全一致的内容。直接返回合法 JSON，不要任何额外文字。
 
 返回格式（严格按此 JSON schema）：
 {
@@ -60,19 +60,26 @@ const PARSE_PROMPT = `你是一个专业的美甲教程 AI 拆解助手。用户
 }`;
 
 export const parseTutorialLink = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ url: z.string().min(1) }))
+  .inputValidator(z.object({ url: z.string().min(1), gender: z.enum(["all", "male"]).optional(), nailShape: z.string().optional() }))
   .handler(async ({ data }) => {
-    // URL 缓存：同一链接永远返回相同结果
-    const cacheKey = data.url.trim();
+    const cacheKey = `${data.url.trim()}__${data.gender ?? "all"}__${data.nailShape ?? ""}`;
     if (_cache.has(cacheKey)) {
       return { ..._cache.get(cacheKey)!, videoUrl: data.url };
     }
+
+    const genderHint = data.gender === "male"
+      ? "这款美甲的目标用户是男性，请侧重推荐适合男性的风格：哑光质感、深色系、灰色系、裸色系、极简线条。"
+      : "";
+
+    const shapeHint = data.nailShape
+      ? `用户选择了「${data.nailShape}」甲型，请在步骤中给出针对该甲型的特殊提示（如打磨角度、长度建议等）。`
+      : "";
 
     try {
       const content = await chatCompletion(
         [
           { role: "system", content: "你是一个专业的美甲教程 AI 拆解助手。始终返回合法 JSON，不要有任何额外文字。每次对同一个视频链接必须生成完全一致的内容。" },
-          { role: "user", content: `请分析这个美甲视频链接并生成 SOP：${data.url}\n\n${PARSE_PROMPT}` },
+          { role: "user", content: `请分析这个美甲视频链接并生成 SOP：${data.url}\n\n${genderHint}\n${shapeHint}\n\n${PARSE_PROMPT}` },
         ],
         { temperature: 0.1, jsonMode: true },
       );

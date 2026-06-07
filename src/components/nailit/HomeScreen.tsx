@@ -15,6 +15,8 @@ interface Props {
   onHandChange: (url: string | null) => void;
   onParseComplete: (data: TutorialData) => void;
   onQuickStart: () => void;
+  onGenderPick: (gender: "all" | "male") => void;
+  onGoToInspiration: () => void;
 }
 
 const steps = ["修形", "底胶", "色胶", "照灯", "封层", "精修"];
@@ -33,21 +35,24 @@ const PARSE_STAGES = [
   { icon: "✨", label: "生成专属 SOP", detail: "结构化教程数据已就绪" },
 ];
 
-export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
+export function HomeScreen({ onParseComplete, onQuickStart, onGenderPick, onGoToInspiration }: Props) {
   const [link, setLink] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseStage, setParseStage] = useState(0);
   const [parseError, setParseError] = useState<string | null>(null);
   const [history, setHistory] = useState<{ url: string; title: string; time: string }[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showGenderPick, setShowGenderPick] = useState(false);
+  const [genderStep, setGenderStep] = useState<"gender" | "shape">("gender");
+  const [pendingGender, setPendingGender] = useState<"all" | "male">("all");
+  const [pendingUrl, setPendingUrl] = useState("");
   const stageTimer = useRef<number | null>(null);
 
-  const startParse = async (url: string) => {
+  const startParse = async (url: string, gender: "all" | "male" = "all", nailShape?: string) => {
     setLoading(true);
     setParseError(null);
     setParseStage(0);
 
-    // Stage animation: advance through stages visually
     const advance = () => {
       stageTimer.current = window.setTimeout(() => {
         setParseStage((s) => {
@@ -62,7 +67,7 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
     advance();
 
     try {
-      const result = await parseTutorialLink({ data: { url } });
+      const result = await parseTutorialLink({ data: { url, gender, nailShape } });
       if (stageTimer.current) clearTimeout(stageTimer.current);
       setParseStage(PARSE_STAGES.length - 1);
       setHistory((h) => [{ url, title: result.videoTitle, time: new Date().toLocaleTimeString() }, ...h.slice(0, 9)]);
@@ -88,7 +93,9 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
       }
     }
     if (!url) return;
-    startParse(url);
+    setPendingUrl(url);
+    setGenderStep("gender");
+    setShowGenderPick(true);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -202,8 +209,7 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
               </span>
             </button>
 
-            <p className="mt-3 text-[13px] text-foreground font-medium">在此粘贴 抖音 / 小红书 / YouTube 美甲教程链接</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">支持链接自动识别,生成步骤拆解</p>
+            <p className="mt-3 text-[13px] text-foreground font-medium">看教程 · 粘贴链接 · 跟着做</p>
 
             {/* Platform chips */}
             <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -225,13 +231,13 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
                 <Flame className="w-4 h-4 text-brand" strokeWidth={2} />
                 <span className="text-[13px] font-medium text-foreground">热门美甲灵感</span>
               </div>
-              <button className="text-[11px] text-muted-foreground flex items-center gap-0.5">
+              <button onClick={onGoToInspiration} className="text-[11px] text-muted-foreground flex items-center gap-0.5">
                 更多灵感 <ChevronRight className="w-3 h-3" />
               </button>
             </div>
             <div className="flex gap-2.5 overflow-x-auto -mx-1 px-1 pb-1 no-scrollbar">
               {inspirations.map((i) => (
-                <button key={i.name} onClick={onQuickStart} className="shrink-0 w-[88px] text-left active:scale-[0.97] transition">
+                <button key={i.name} onClick={onGoToInspiration} className="shrink-0 w-[88px] text-left active:scale-[0.97] transition">
                   <div className="w-[88px] h-[88px] rounded-2xl overflow-hidden bg-muted">
                     <img src={i.img} alt={i.name} loading="lazy" width={512} height={512} className="w-full h-full object-cover" />
                   </div>
@@ -379,6 +385,39 @@ export function HomeScreen({ onParseComplete, onQuickStart }: Props) {
           </div>
         </div>
       )}
+
+      {/* ====== Gender + Shape Selection ====== */}
+      {showGenderPick && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}>
+          <div className="w-full max-w-[340px] rounded-3xl p-6" style={{ backgroundColor: "#FAFAFA", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+
+            {genderStep === "gender" ? (
+              <>
+                <span className="text-3xl mb-3 block text-center">💅</span>
+                <h3 className="text-base font-medium text-foreground text-center mb-1">你是？</h3>
+                <p className="text-[11px] text-muted-foreground text-center mb-5">告诉我，AI 会推荐更适合你的风格</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setPendingGender("all"); onGenderPick("all"); setShowGenderPick(false); setGenderStep("gender"); startParse(pendingUrl, "all"); }}
+                    className="flex-1 py-3 rounded-2xl text-sm font-medium tracking-wider transition active:scale-[0.97]"
+                    style={{ backgroundColor: "rgba(212,163,163,0.1)", color: "#D4A3A3", border: "1px solid rgba(212,163,163,0.2)" }}
+                  >
+                    👩 我是女生
+                  </button>
+                  <button
+                    onClick={() => { setPendingGender("male"); onGenderPick("male"); setShowGenderPick(false); setGenderStep("gender"); startParse(pendingUrl, "male"); }}
+                    className="flex-1 py-3 rounded-2xl text-sm font-medium tracking-wider transition active:scale-[0.97]"
+                    style={{ backgroundColor: "rgba(90,155,122,0.1)", color: "#5A9B7A", border: "1px solid rgba(90,155,122,0.2)" }}
+                  >
+                    🧔‍♂️ 我是男生
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
+
     </PhoneFrame>
   );
 }

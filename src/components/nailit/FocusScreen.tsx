@@ -78,7 +78,7 @@ const VERIFY_MESSAGES_FAIL = [
   "包边不完整，指尖/两侧未完全覆盖，请用刷头补涂边缘",
 ];
 
-export function FocusScreen({ onExit, missingItems, tutorialData }: { onExit: () => void; missingItems: string[]; tutorialData: TutorialData | null }) {
+export function FocusScreen({ onExit, missingItems, tutorialData, genderMode }: { onExit: () => void; missingItems: string[]; tutorialData: TutorialData | null; genderMode: "all" | "male" }) {
   const steps = tutorialData?.steps ?? STEPS;
   const [stepIdx, setStepIdx] = useState(0);
   const [seconds, setSeconds] = useState(steps[0].duration);
@@ -87,6 +87,8 @@ export function FocusScreen({ onExit, missingItems, tutorialData }: { onExit: ()
   const [verifyMsg, setVerifyMsg] = useState("");
   const [showFinalVideo, setShowFinalVideo] = useState(false);
   const [videoGenerating, setVideoGenerating] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
 
   const holdRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -124,6 +126,40 @@ export function FocusScreen({ onExit, missingItems, tutorialData }: { onExit: ()
       videoRef.current.currentTime = step.videoStart;
     }
   }, [stepIdx, step.videoStart]);
+
+  // Speech synthesis when user starts operating
+  useEffect(() => {
+    if (phase !== "active" || muted) return;
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const text = `${step.title}。${step.aiTranslation.replace(/⚠️/g, "注意")}`;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "zh-CN";
+    utterance.rate = 0.85;
+    utterance.onstart = () => setSpeaking(true);
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+    return () => {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+    };
+  }, [phase, stepIdx, muted]);
+
+  // Voice alerts at 20s and 10s remaining
+  const lastAlertRef = useRef(0);
+  useEffect(() => {
+    if (phase !== "active" || muted) return;
+    if (!("speechSynthesis" in window)) return;
+    if ((seconds === 20 || seconds === 10) && seconds !== lastAlertRef.current) {
+      lastAlertRef.current = seconds;
+      const alert = new SpeechSynthesisUtterance(`还有${seconds}秒`);
+      alert.lang = "zh-CN";
+      alert.rate = 0.9;
+      window.speechSynthesis.speak(alert);
+    }
+    if (seconds === 0) lastAlertRef.current = 0;
+  }, [seconds, phase, muted]);
 
   // Countdown
   const timerColor = step.isLampCure ? "#F5C542" : "#D4A3A3";
@@ -276,6 +312,20 @@ export function FocusScreen({ onExit, missingItems, tutorialData }: { onExit: ()
               <span>AI 解读</span>
             </div>
             <p className="text-sm text-foreground/80 leading-relaxed">{step.aiTranslation}</p>
+
+            {genderMode === "male" && (
+              <div
+                className="mt-3 rounded-xl px-3 py-2.5"
+                style={{ backgroundColor: "rgba(90,155,122,0.06)", borderLeft: "3px solid #5A9B7A" }}
+              >
+                <p className="text-[10px] tracking-widest mb-1" style={{ color: "#5A9B7A" }}>🧔‍♂️ 男士美甲建议</p>
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  {step.step === 1
+                    ? "· 甲床较宽适合方圆甲型 · 甲面弧度偏平，打磨力度均匀 · 留 1-2mm 白边自然实用"
+                    : "· 动作幅度大包边格外重要 · 推荐哑光封层低调质感 · 深色/灰色/裸色优先"}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Spacer */}
@@ -338,61 +388,74 @@ export function FocusScreen({ onExit, missingItems, tutorialData }: { onExit: ()
             {(phase === "active" || phase === "learning") && (
               <div className="flex items-center justify-between mb-3 gap-2">
                 {/* Countdown */}
-                <div className="relative w-20 h-20 shrink-0">
-                  <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r={32} stroke="var(--color-border)" strokeWidth="4" fill="none" />
-                    <circle
-                      cx="50" cy="50" r={32}
-                      stroke={timerColor} strokeWidth="4" fill="none"
-                      strokeLinecap="round"
-                      strokeDasharray={2 * Math.PI * 32}
-                      strokeDashoffset={phase === "learning" ? 0 : 2 * Math.PI * 32 * (1 - seconds / step.duration)}
-                      style={{ transition: "stroke-dashoffset 1s linear" }}
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-lg font-light tabular-nums text-foreground">{seconds}<span className="text-[10px] text-muted-foreground">s</span></span>
-                    <span className="text-[7px] tracking-[0.15em] text-muted-foreground/60 uppercase mt-0.5">
-                      {phase === "learning" ? "准备好了？" : timerLabel}
-                    </span>
-                  </div>
+                <div className="relative shrink-0">
+                  {phase === "learning" ? (
+                    <button
+                      onClick={() => setPhase("active")}
+                      className="w-16 h-16 rounded-full flex items-center justify-center transition active:scale-95"
+                      style={{ backgroundColor: "var(--color-muted)", color: "var(--color-muted-foreground)" }}
+                    >
+                      <span className="text-lg font-medium tabular-nums">{seconds}s</span>
+                    </button>
+                  ) : (
+                    <div
+                      className="w-16 h-16 rounded-full flex items-center justify-center transition-colors duration-500"
+                      style={{
+                        backgroundColor: step.isLampCure
+                          ? seconds <= 10 ? "#F5C542" : "rgba(245,197,66,0.3)"
+                          : seconds <= 15 ? "#D4A3A3" : "rgba(212,163,163,0.3)",
+                        color: seconds <= 15 ? "#fff" : "var(--color-foreground)",
+                      }}
+                    >
+                      <span className="text-lg font-medium tabular-nums">{seconds}s</span>
+                    </div>
+                  )}
+                  <span className="block text-center text-[9px] tracking-wider text-muted-foreground mt-1.5">
+                    {phase === "learning" ? "点击开始" : timerLabel}
+                  </span>
                 </div>
 
                 {/* Voice indicator */}
-                <div className="flex flex-col items-center gap-1 shrink-0">
+                <button
+                  onClick={() => { setMuted(!muted); if (!muted) window.speechSynthesis?.cancel(); }}
+                  className="flex flex-col items-center gap-1 shrink-0"
+                >
                   <div className="flex items-end gap-[2px] h-4">
-                    <span className="w-[2px] h-full bg-[#A8D5BA] rounded-full animate-wave" style={{ animationDelay: "0ms" }} />
-                    <span className="w-[2px] h-full bg-[#A8D5BA] rounded-full animate-wave" style={{ animationDelay: "150ms" }} />
-                    <span className="w-[2px] h-full bg-[#A8D5BA] rounded-full animate-wave" style={{ animationDelay: "300ms" }} />
-                    <span className="w-[2px] h-full bg-[#A8D5BA] rounded-full animate-wave" style={{ animationDelay: "150ms" }} />
+                    <span
+                      className={`w-[2px] h-full bg-[#A8D5BA] rounded-full ${speaking ? "animate-wave" : ""}`}
+                      style={{ animationDelay: "0ms", opacity: muted ? 0.3 : 1 }}
+                    />
+                    <span
+                      className={`w-[2px] h-full bg-[#A8D5BA] rounded-full ${speaking ? "animate-wave" : ""}`}
+                      style={{ animationDelay: "150ms", opacity: muted ? 0.3 : 1 }}
+                    />
+                    <span
+                      className={`w-[2px] h-full bg-[#A8D5BA] rounded-full ${speaking ? "animate-wave" : ""}`}
+                      style={{ animationDelay: "300ms", opacity: muted ? 0.3 : 1 }}
+                    />
+                    <span
+                      className={`w-[2px] h-full bg-[#A8D5BA] rounded-full ${speaking ? "animate-wave" : ""}`}
+                      style={{ animationDelay: "150ms", opacity: muted ? 0.3 : 1 }}
+                    />
                   </div>
-                  <span className="text-[9px] tracking-widest text-muted-foreground">语音助手</span>
-                </div>
+                  <span className="text-[9px] tracking-widest text-muted-foreground">
+                    {muted ? "已静音" : speaking ? "播报中" : "已唤醒"}
+                  </span>
+                </button>
 
-                {/* Verify / Start button */}
-                {phase === "learning" ? (
-                  <button
-                    onClick={() => setPhase("active")}
-                    className="flex items-center gap-1.5 px-5 py-3 rounded-full text-[11px] font-medium tracking-widest text-white transition active:scale-95 shadow-[0_4px_20px_-6px_rgba(168,213,186,0.5)] shrink-0"
-                    style={{ backgroundColor: "#A8D5BA" }}
-                  >
-                    <Play className="w-3.5 h-3.5" />
-                    开始操作
-                  </button>
-                ) : (
-                  <button
-                    onClick={startVerification}
-                    className={`flex items-center gap-1.5 px-4 py-3 rounded-full text-[11px] font-medium tracking-widest transition active:scale-95 shrink-0 ${
-                      seconds === 0
-                        ? "text-white shadow-[0_4px_20px_-6px_rgba(168,213,186,0.5)]"
-                        : "opacity-40"
-                    }`}
-                    style={seconds === 0 ? { backgroundColor: "#A8D5BA" } : { backgroundColor: "rgba(255,255,255,0.08)" }}
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>{seconds === 0 ? "完成 拍照核验" : "拍照核验"}</span>
-                  </button>
-                )}
+                {/* Verify button */}
+                <button
+                  onClick={startVerification}
+                  className={`flex items-center gap-1.5 px-4 py-3 rounded-full text-[11px] font-medium tracking-widest transition active:scale-95 shrink-0 ${
+                    seconds === 0
+                      ? "text-white shadow-[0_4px_20px_-6px_rgba(168,213,186,0.5)]"
+                      : "opacity-40"
+                  }`}
+                  style={seconds === 0 ? { backgroundColor: "#A8D5BA" } : { backgroundColor: "var(--color-muted)" }}
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>{seconds === 0 ? "完成 拍照核验" : "拍照核验"}</span>
+                </button>
               </div>
             )}
 

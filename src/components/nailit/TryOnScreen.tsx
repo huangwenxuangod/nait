@@ -4,13 +4,36 @@ import { PhoneFrame } from "./PhoneFrame";
 import tryOnImg from "@/assets/nail-tryon.jpg";
 import type { TutorialData } from "@/lib/types";
 import { getTutorialVideo } from "@/lib/media";
+import { captureStepFrame } from "@/lib/video-generator";
 
 export function TryOnScreen({ handImage, onBack, onConfirm, tutorialData }: { handImage?: string | null; onBack: () => void; onConfirm: () => void; tutorialData: TutorialData | null }) {
   const [comparing, setComparing] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
+  const [tryOnFrame, setTryOnFrame] = useState<string | null>(null);
   const videoUrl = getTutorialVideo();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const captureRef = useRef<HTMLVideoElement>(null);
   void handImage;
+
+  // Capture a frame from the tutorial video for the try-on image
+  useEffect(() => {
+    if (!videoUrl || tryOnFrame) return;
+    const v = document.createElement("video");
+    v.src = videoUrl;
+    v.crossOrigin = "anonymous";
+    v.preload = "metadata";
+    v.muted = true;
+    v.onloadeddata = () => {
+      v.currentTime = 3; // Capture at 3 seconds in
+    };
+    v.onseeked = () => {
+      const frame = captureStepFrame(v);
+      if (frame) setTryOnFrame(frame);
+      v.remove();
+    };
+    v.onerror = () => v.remove();
+    captureRef.current = v;
+  }, [videoUrl]);
 
   useEffect(() => {
     if (showVideo && videoRef.current) {
@@ -47,7 +70,7 @@ export function TryOnScreen({ handImage, onBack, onConfirm, tutorialData }: { ha
               />
             ) : (
               <>
-                <img src={tryOnImg} alt="虚拟试戴效果" className="w-full h-full object-cover" />
+                <img src={tryOnFrame ?? tryOnImg} alt="虚拟试戴效果" className="w-full h-full object-cover" />
                 {comparing && (
                   handImage ? (
                     <img src={handImage} alt="原手" className="absolute inset-0 w-full h-full object-cover" />
