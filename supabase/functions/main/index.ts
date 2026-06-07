@@ -1,5 +1,25 @@
 // supabase/functions/main/index.ts
-console.log("Main worker booted successfully");
+import create_session from "../create_session/index.ts";
+import create_try_on from "../create_try_on/index.ts";
+import render_try_on from "../render_try_on/index.ts";
+import submit_source_link from "../submit_source_link/index.ts";
+import generate_execution_package from "../generate_execution_package/index.ts";
+import prepare_asset_upload from "../prepare_asset_upload/index.ts";
+import confirm_asset_upload from "../confirm_asset_upload/index.ts";
+import create_qwen_temp_token from "../create_qwen_temp_token/index.ts";
+
+console.log("Static Main Router booted successfully");
+
+const ROUTES: Record<string, (req: Request) => Promise<Response>> = {
+  "create_session": create_session,
+  "create_try_on": create_try_on,
+  "render_try_on": render_try_on,
+  "submit_source_link": submit_source_link,
+  "generate_execution_package": generate_execution_package,
+  "prepare_asset_upload": prepare_asset_upload,
+  "confirm_asset_upload": confirm_asset_upload,
+  "create_qwen_temp_token": create_qwen_temp_token,
+};
 
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
@@ -11,20 +31,17 @@ Deno.serve(async (req: Request) => {
     return new Response('No function name specified in path', { status: 400 });
   }
 
-  // Use absolute container path to bypass Deno's temporary compilation directory sandbox
-  const servicePath = `file:///home/deno/functions/${functionName}/index.ts`;
-  console.log(`[main] Routing to service absolute path: ${servicePath}`);
+  console.log(`[main] Routing to statically bundled service: ${functionName}`);
 
-  try {
-    const module = await import(servicePath);
-    const handler = module.default;
-    if (typeof handler === 'function') {
+  const handler = ROUTES[functionName];
+  if (typeof handler === 'function') {
+    try {
       return await handler(req);
+    } catch (err) {
+      console.error(`[main] Error execution in ${functionName}:`, err);
+      return new Response(`Internal Server Error in ${functionName}: ${err.message}`, { status: 500 });
     }
-    
-    return new Response(`Function ${functionName} loaded successfully`, { status: 200 });
-  } catch (err) {
-    console.error(`[main] Error routing to ${functionName}:`, err);
-    return new Response(`Function not found or failed to load: ${err.message}`, { status: 404 });
   }
+
+  return new Response(`Function ${functionName} not found in static router`, { status: 404 });
 });
