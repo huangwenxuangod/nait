@@ -1,4 +1,5 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { createRequestLogger } from "../_shared/logger.ts";
 
 const REGION = Deno.env.get("DASHSCOPE_REGION") ?? "beijing";
 const DASHSCOPE_API_KEY = Deno.env.get("DASHSCOPE_API_KEY") ?? "";
@@ -10,13 +11,26 @@ const websocketBaseUrl = REGION === "beijing"
 const websocketUrl = `${websocketBaseUrl}?model=${encodeURIComponent(MODEL)}`;
 
 Deno.serve(async (req) => {
+  const logger = createRequestLogger("create_qwen_temp_token");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
 
+  logger.log("request_start", {
+    region: REGION,
+    model: MODEL,
+    has_dashscope_key: DASHSCOPE_API_KEY.trim().length > 0,
+  });
+
   if (!DASHSCOPE_API_KEY) {
+    logger.warn("missing_dashscope_api_key");
+    logger.done("error", { error: "DASHSCOPE_API_KEY missing" });
     return jsonResponse({ error: "DASHSCOPE_API_KEY missing" }, { status: 500 });
   }
 
+  logger.done("ok", {
+    websocket_url: websocketUrl,
+    model: MODEL,
+  });
   return jsonResponse({
     // Temporary token flow was causing handshake mismatch for realtime.
     // For this MVP path we return the actual API key so the Android client

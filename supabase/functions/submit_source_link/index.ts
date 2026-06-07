@@ -1,5 +1,6 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { getAdminClient } from "../_shared/client.ts";
+import { createRequestLogger, stringifyError } from "../_shared/logger.ts";
 import { createQwenJsonResponse, hasQwenConfig } from "../_shared/qwen.ts";
 import type {
   SubmitSourceLinkRequest,
@@ -41,16 +42,23 @@ interface SourceParsePayload {
 }
 
 Deno.serve(async (req) => {
+  const logger = createRequestLogger("submit_source_link");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
 
   try {
     const body = (await req.json()) as SubmitSourceLinkRequest;
+    logger.log("request_start", {
+      session_id: body.session_id,
+      source_url: body.source_url,
+    });
     if (!body.session_id || !body.source_url) {
+      logger.warn("validation_failed", { reason: "session_id or source_url missing" });
       return jsonResponse({ error: "session_id and source_url are required" }, { status: 400 });
     }
 
     const supabase = getAdminClient();
+    logger.log("db_update_session_start", { status: "source_parsing" });
     const { data, error } = await supabase
       .from("sessions")
       .update({
@@ -64,16 +72,21 @@ Deno.serve(async (req) => {
     if (error || !data) {
       throw error ?? new Error("Failed to submit source link");
     }
+    logger.log("db_update_session_done", {
+      session_id: data.id,
+      status: data.status,
+    });
 
     let mockParse: SourceParsePayload;
 
     if (body.source_url.startsWith("preset://")) {
       const presetId = body.source_url.replace("preset://", "");
+      logger.log("parse_mode_preset", { preset_id: presetId });
       const presetData = PRESETS_MAP[presetId];
       if (presetData) {
         mockParse = presetData;
       } else {
-        console.warn(`[submit_source_link] Preset ${presetId} not found in map, falling back to default.`);
+        logger.warn("preset_missing_fallback", { preset_id: presetId });
         mockParse = {
           style_name: "极光冰透猫眼",
           style_tags: ["极光猫眼", "冰透水光", "暖调显白"],
@@ -92,6 +105,9 @@ Deno.serve(async (req) => {
         };
       }
     } else {
+      logger.log("parse_mode_llm", {
+        qwen_enabled: hasQwenConfig(),
+      });
       mockParse = hasQwenConfig()
         ? await createQwenJsonResponse<SourceParsePayload>({
           system:
@@ -127,13 +143,23 @@ Deno.serve(async (req) => {
         };
     }
 
+    logger.log("db_upsert_source_parse_start", {
+      style_name: mockParse.style_name,
+      total_steps: mockParse.total_steps,
+      materials_count: mockParse.materials_hint?.length ?? 0,
+    });
     await supabase.from("source_parses").upsert({
       session_id: body.session_id,
       model: hasQwenConfig() ? "qwen2.5-vl-72b-instruct" : "fallback",
       version: "v1",
       parse_json: mockParse,
     });
+    logger.log("db_upsert_source_parse_done");
 
+    logger.log("db_finalize_session_start", {
+      status: "source_parsed",
+      style_name: mockParse.style_name,
+    });
     await supabase
       .from("sessions")
       .update({
@@ -141,20 +167,23 @@ Deno.serve(async (req) => {
         style_name: mockParse.style_name,
       })
       .eq("id", body.session_id);
+    logger.log("db_finalize_session_done");
 
     const response: SubmitSourceLinkResponse = {
       session_id: data.id,
       status: "source_parsing",
     };
 
+    logger.done("ok", {
+      session_id: data.id,
+      parsed_style_name: mockParse.style_name,
+      returned_status: "source_parsing",
+    });
     return jsonResponse(response);
   } catch (error) {
-    console.error("Function error:", error);
-    const message = error instanceof Error
-      ? error.message
-      : typeof error === "object" && error !== null && "message" in error
-        ? (error as any).message
-        : JSON.stringify(error);
+    logger.error("request_failed", { error: stringifyError(error) });
+    logger.done("error", { error: stringifyError(error) });
+    const message = stringifyError(error);
     return jsonResponse(
       { error: message },
       { status: 500 },

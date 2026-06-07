@@ -30,6 +30,8 @@ export async function createQwenJsonResponse<T>({
     throw new Error("Missing QWEN_API_KEY/DASHSCOPE_API_KEY");
   }
 
+  console.log(`[qwen] createQwenJsonResponse start | model=${model} | image_inputs=${imageInputs.length} | required_keys=${requiredKeys.join(",")}`);
+
   const parseAndValidate = (raw: string): T => {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -52,8 +54,10 @@ export async function createQwenJsonResponse<T>({
 
   const firstRaw = await requestQwenJsonText(system, user, model, imageInputs);
   try {
+    console.log(`[qwen] first_response_received | length=${firstRaw.length}`);
     return parseAndValidate(firstRaw);
   } catch (firstError) {
+    console.warn(`[qwen] first_validation_failed | error=${firstError instanceof Error ? firstError.message : String(firstError)}`);
     const secondRaw = await requestQwenJsonText(
       `${system}\n你上一次输出没有通过程序校验。这一次只能输出严格 JSON 对象，禁止附带任何解释、markdown、代码块或额外文本。`,
       `${user}\n请重新输出完整 JSON，确保字段齐全、类型正确。`,
@@ -62,6 +66,7 @@ export async function createQwenJsonResponse<T>({
     );
 
     try {
+      console.log(`[qwen] retry_response_received | length=${secondRaw.length}`);
       return parseAndValidate(secondRaw);
     } catch (secondError) {
       const firstMessage = firstError instanceof Error ? firstError.message : String(firstError);
@@ -145,14 +150,18 @@ async function requestQwenJsonText(
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`[qwen] request_failed | model=${model} | status=${response.status} | body=${errorText}`);
     throw new Error(`Qwen error ${response.status}: ${errorText}`);
   }
 
   const data = await response.json();
   const outputText = data?.choices?.[0]?.message?.content;
   if (typeof outputText !== "string" || outputText.trim().length === 0) {
+    console.error(`[qwen] empty_output | model=${model}`);
     throw new Error("Qwen returned no output text");
   }
+
+  console.log(`[qwen] request_success | model=${model} | output_length=${outputText.length}`);
 
   return outputText;
 }

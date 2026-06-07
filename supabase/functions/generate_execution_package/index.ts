@@ -1,5 +1,6 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { getAdminClient } from "../_shared/client.ts";
+import { createRequestLogger, stringifyError } from "../_shared/logger.ts";
 import { createQwenJsonResponse, hasQwenConfig } from "../_shared/qwen.ts";
 import type {
   GenerateExecutionPackageRequest,
@@ -24,34 +25,53 @@ interface ExecutionPackagePayload {
 }
 
 Deno.serve(async (req) => {
+  const logger = createRequestLogger("generate_execution_package");
   const preflight = handleOptions(req);
   if (preflight) return preflight;
 
   try {
     const body = (await req.json()) as GenerateExecutionPackageRequest;
+    logger.log("request_start", {
+      session_id: body.session_id,
+      qwen_enabled: hasQwenConfig(),
+    });
     if (!body.session_id) {
+      logger.warn("validation_failed", { reason: "session_id missing" });
       return jsonResponse({ error: "session_id is required" }, { status: 400 });
     }
 
     const supabase = getAdminClient();
 
+    logger.log("db_read_session_start");
     const { data: session } = await supabase
       .from("sessions")
       .select("style_name")
       .eq("id", body.session_id)
       .maybeSingle();
+    logger.log("db_read_session_done", {
+      style_name: session?.style_name ?? null,
+    });
 
+    logger.log("db_read_source_parse_start");
     const { data: parseRecord } = await supabase
       .from("source_parses")
       .select("parse_json")
       .eq("session_id", body.session_id)
       .maybeSingle();
+    logger.log("db_read_source_parse_done", {
+      has_parse: !!parseRecord?.parse_json,
+    });
 
+    logger.log("db_read_try_on_start");
     const { data: tryOnRecord } = await supabase
       .from("try_on_results")
       .select("result_image_path")
       .eq("session_id", body.session_id)
       .maybeSingle();
+    logger.log("db_read_try_on_done", {
+      has_try_on: !!tryOnRecord?.result_image_path,
+      target_image_path: tryOnRecord?.result_image_path ?? null,
+    });
 
     const parseJson = parseRecord?.parse_json ?? {};
     const styleName = session?.style_name ?? "暖粉猫眼";
@@ -61,6 +81,10 @@ Deno.serve(async (req) => {
       parse_json: parseJson,
     });
 
+    logger.log("ai_execution_package_start", {
+      style_name: styleName,
+      parse_keys: Object.keys(parseJson ?? {}),
+    });
     const executionPackage = hasQwenConfig()
       ? await createQwenJsonResponse<ExecutionPackagePayload>({
         system:
@@ -112,7 +136,12 @@ Deno.serve(async (req) => {
           },
         ],
       };
+    logger.log("ai_execution_package_done", {
+      estimated_total_minutes: executionPackage.estimated_total_minutes,
+      step_count: executionPackage.steps?.length ?? 0,
+    });
 
+    logger.log("db_upsert_sop_start");
     const { error: sopError } = await supabase.from("sop_guides").upsert({
       session_id: body.session_id,
       version: "live_guide_v1",
@@ -120,25 +149,30 @@ Deno.serve(async (req) => {
     });
 
     if (sopError) throw sopError;
+    logger.log("db_upsert_sop_done");
 
+    logger.log("db_update_session_status_start", { status: "in_progress" });
     await supabase
       .from("sessions")
       .update({ status: "in_progress" })
       .eq("id", body.session_id);
+    logger.log("db_update_session_status_done", { status: "in_progress" });
 
     const response: GenerateExecutionPackageResponse = {
       session_id: body.session_id,
       status: "in_progress",
     };
 
+    logger.done("ok", {
+      session_id: body.session_id,
+      step_count: executionPackage.steps?.length ?? 0,
+      status: "in_progress",
+    });
     return jsonResponse(response);
   } catch (error) {
-    console.error("Function error:", error);
-    const message = error instanceof Error
-      ? error.message
-      : typeof error === "object" && error !== null && "message" in error
-        ? (error as any).message
-        : JSON.stringify(error);
+    logger.error("request_failed", { error: stringifyError(error) });
+    logger.done("error", { error: stringifyError(error) });
+    const message = stringifyError(error);
     return jsonResponse(
       { error: message },
       { status: 500 },

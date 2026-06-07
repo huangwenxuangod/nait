@@ -27,6 +27,8 @@ export async function createJsonResponse<T>({
     throw new Error("Missing OPENAI_API_KEY");
   }
 
+  console.log(`[openai] createJsonResponse start | model=${model} | image_inputs=${imageInputs.length}`);
+
   const isCustomResponses = OPENAI_BASE_URL.endsWith("/responses");
   const endpoint = isCustomResponses ? OPENAI_BASE_URL : `${OPENAI_BASE_URL.replace(/\/+$/, "")}/chat/completions`;
 
@@ -88,6 +90,7 @@ export async function createJsonResponse<T>({
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`[openai] createJsonResponse failed | model=${model} | status=${response.status} | body=${errorText}`);
     throw new Error(`OpenAI error ${response.status}: ${errorText}`);
   }
 
@@ -101,8 +104,11 @@ export async function createJsonResponse<T>({
   }
 
   if (!outputText) {
+    console.error(`[openai] createJsonResponse empty_output | model=${model}`);
     throw new Error("OpenAI returned no output text");
   }
+
+  console.log(`[openai] createJsonResponse success | model=${model} | output_length=${outputText.length}`);
 
   return JSON.parse(outputText) as T;
 }
@@ -132,6 +138,8 @@ export async function createImageEdit({
     throw new Error("Missing OPENAI_API_KEY");
   }
 
+  console.log(`[openai] createImageEdit start | model=${model} | size=${size} | extra_images=${imageInputs?.length ?? 0}`);
+
   const endpoint = `${OPENAI_BASE_URL.replace(/\/+$/, "")}/images/edits`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -151,14 +159,17 @@ export async function createImageEdit({
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`[openai] createImageEdit failed | model=${model} | status=${response.status} | body=${errorText}`);
     throw new Error(`OpenAI image edit error ${response.status}: ${errorText}`);
   }
 
   const data = await response.json();
   const base64 = data?.data?.[0]?.b64_json;
   if (typeof base64 !== "string" || base64.length === 0) {
+    console.error(`[openai] createImageEdit empty_output | model=${model}`);
     throw new Error("OpenAI returned no edited image");
   }
+  console.log(`[openai] createImageEdit success | model=${model} | base64_length=${base64.length}`);
   return base64;
 }
 
