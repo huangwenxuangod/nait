@@ -92,6 +92,7 @@ fun AdaptationScreen(
     var isRendering by remember { mutableStateOf(false) }
     var debugErrorText by remember { mutableStateOf<String?>(null) }
     var autoStartedForCurrentBitmap by remember { mutableStateOf(handBitmap != null) }
+    var hasAutoOpenedCapture by remember { mutableStateOf(false) }
 
     fun startTryOn(bitmapOverride: Bitmap? = handBitmap) {
         val initialSession = NailSessionRuntime.current ?: activeSession
@@ -279,6 +280,19 @@ fun AdaptationScreen(
         }
     }
 
+    LaunchedEffect(activeSession?.sessionId, handBitmap) {
+        if (
+            handBitmap == null &&
+            !hasAutoOpenedCapture &&
+            remoteTryOnBitmap == null &&
+            !isRendering
+        ) {
+            hasAutoOpenedCapture = true
+            delay(180)
+            openCapture()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -357,12 +371,24 @@ fun AdaptationScreen(
                         }
                     }
                     handBitmap == null -> {
-                        Text(
-                            text = "拍张手图，直接开始试戴",
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                color = TryOnMuted,
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                text = "正在打开拍照",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = TryOnText,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
                             )
-                        )
+                            Text(
+                                text = "对准手背，尽量拍全五指",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = TryOnMuted,
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -402,7 +428,7 @@ fun AdaptationScreen(
                         )
                     ) {
                         Text(
-                            text = "拍张手图直接试戴",
+                            text = "立即拍照",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.SemiBold,
                             )

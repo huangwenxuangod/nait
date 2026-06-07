@@ -6,6 +6,23 @@ import type {
   SubmitSourceLinkResponse,
 } from "../_shared/types.ts";
 
+// Statically import JSON presets so they are fully bundled by esbuild
+import polarCatMatte from "./presets/polar-cat-matte.json" with { type: "json" };
+import frenchPolarCat from "./presets/french-polar-cat.json" with { type: "json" };
+import blushFireworkCat from "./presets/blush-firework-cat.json" with { type: "json" };
+import polarCatFrench from "./presets/polar-cat-french.json" with { type: "json" };
+import frenchGradientStruct from "./presets/french-gradient-struct.json" with { type: "json" };
+import pureYellow from "./presets/pure-yellow.json" with { type: "json" };
+
+const PRESETS_MAP: Record<string, any> = {
+  "polar-cat-matte": polarCatMatte,
+  "french-polar-cat": frenchPolarCat,
+  "blush-firework-cat": blushFireworkCat,
+  "polar-cat-french": polarCatFrench,
+  "french-gradient-struct": frenchGradientStruct,
+  "pure-yellow": pureYellow,
+};
+
 interface SourceParsePayload {
   style_name: string;
   style_tags: string[];
@@ -52,12 +69,11 @@ Deno.serve(async (req) => {
 
     if (body.source_url.startsWith("preset://")) {
       const presetId = body.source_url.replace("preset://", "");
-      try {
-        const fileUrl = new URL(`./presets/${presetId}.json`, import.meta.url);
-        const presetText = await Deno.readTextFile(fileUrl);
-        mockParse = JSON.parse(presetText);
-      } catch (e) {
-        console.warn(`[submit_source_link] Preset ${presetId} not found, falling back to default:`, e);
+      const presetData = PRESETS_MAP[presetId];
+      if (presetData) {
+        mockParse = presetData;
+      } else {
+        console.warn(`[submit_source_link] Preset ${presetId} not found in map, falling back to default.`);
         mockParse = {
           style_name: "极光冰透猫眼",
           style_tags: ["极光猫眼", "冰透水光", "暖调显白"],
